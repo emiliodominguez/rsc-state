@@ -236,6 +236,8 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`
 
 **Always include scope** - enforced by commitlint.
 
+**IMPORTANT**: Do NOT add the "Generated with Claude Code" footer or "Co-Authored-By" lines to commit messages. Keep commits clean and simple.
+
 Example:
 
 ```
