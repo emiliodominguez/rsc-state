@@ -56,6 +56,7 @@ export async function toggleTheme(): Promise<void> {
 
 export async function toggleBetaFeatures(): Promise<void> {
 	const current = featureFlagsStore.read().betaFeatures;
+
 	featureFlagsStore.set({ betaFeatures: !current });
 	revalidatePath("/", "layout");
 }

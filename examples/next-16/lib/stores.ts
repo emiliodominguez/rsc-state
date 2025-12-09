@@ -50,6 +50,7 @@ export const getUser = cache(async () => {
 	if (userCookie) {
 		try {
 			const userData = JSON.parse(userCookie.value);
+
 			userStore.initialize(userData);
 		} catch {
 			// Invalid cookie

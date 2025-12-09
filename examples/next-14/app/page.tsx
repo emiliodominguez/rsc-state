@@ -93,7 +93,7 @@ export default function HomePage(): React.ReactNode {
 						</div>
 					</>
 				) : (
-					<form action={login} className="form-login">
+					<form className="form-login" action={login}>
 						<input type="text" name="userName" placeholder="Name" required className={`input ${user.isDarkMode ? "dark" : "light"}`} />
 
 						<input type="email" name="userEmail" placeholder="Email" required className={`input ${user.isDarkMode ? "dark" : "light"}`} />
