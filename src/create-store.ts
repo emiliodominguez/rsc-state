@@ -1,5 +1,6 @@
 import { cache } from "react";
-import { type StoreConfig, type ServerStore } from "./types";
+
+import type { ServerStore, StoreConfig } from "./types";
 
 /**
  * Creates a request-scoped server store for managing state in React Server Components.
@@ -83,6 +84,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		}
 
 		const derivedState = configuration.derive(baseState) as DerivedState;
+
 		return { ...baseState, ...derivedState } as FullState;
 	}
 
@@ -95,6 +97,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 */
 	function initialize(initialState: State): void {
 		const cacheInstance = getCacheInstance();
+
 		cacheInstance.state = initialState;
 		cacheInstance.initialized = true;
 
@@ -129,6 +132,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 */
 	function update(updaterFunction: (previousState: State) => State): void {
 		const cacheInstance = getCacheInstance();
+
 		cacheInstance.state = updaterFunction(cacheInstance.state);
 
 		if (configuration.debug) {
@@ -145,6 +149,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 */
 	function set(newState: State): void {
 		const cacheInstance = getCacheInstance();
+
 		cacheInstance.state = newState;
 
 		if (configuration.debug) {
@@ -171,6 +176,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 */
 	function reset(): void {
 		const cacheInstance = getCacheInstance();
+
 		cacheInstance.state = typeof configuration.initial === "function" ? (configuration.initial as () => T)() : configuration.initial;
 
 		if (configuration.debug) {

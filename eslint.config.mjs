@@ -2,6 +2,7 @@
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier";
+import importPlugin from "eslint-plugin-import";
 import globals from "globals";
 
 export default tseslint.config(
@@ -24,6 +25,15 @@ export default tseslint.config(
 	},
 	{
 		files: ["**/*.ts"],
+		plugins: {
+			import: importPlugin,
+		},
+		settings: {
+			"import/resolver": {
+				typescript: true,
+				node: true,
+			},
+		},
 		rules: {
 			// Strict TypeScript rules
 			"@typescript-eslint/explicit-function-return-type": "error",
@@ -82,12 +92,49 @@ export default tseslint.config(
 			eqeqeq: ["error", "always"],
 			"no-var": "error",
 			"prefer-const": "error",
-			"no-duplicate-imports": "error",
 			"no-console": "off",
 			curly: ["error", "all"],
 			"no-throw-literal": "error",
 			"prefer-template": "error",
 			"object-shorthand": "error",
+
+			// Import organization
+			"no-duplicate-imports": "off",
+			"import/no-duplicates": "error",
+			"import/order": [
+				"error",
+				{
+					groups: [["builtin", "external"], "internal", ["parent", "sibling", "index"], "unknown"],
+					pathGroupsExcludedImportTypes: ["builtin", "external"],
+					"newlines-between": "always",
+					alphabetize: {
+						order: "asc",
+						caseInsensitive: true,
+					},
+				},
+			],
+			"sort-imports": [
+				"error",
+				{
+					ignoreCase: false,
+					ignoreDeclarationSort: true,
+					ignoreMemberSort: false,
+					memberSyntaxSortOrder: ["none", "all", "multiple", "single"],
+					allowSeparatedGroups: true,
+				},
+			],
+
+			// Padding and spacing
+			"padding-line-between-statements": [
+				"error",
+				{ blankLine: "always", prev: ["const", "let", "var"], next: "*" },
+				{ blankLine: "any", prev: ["const", "let", "var"], next: ["const", "let", "var"] },
+				{ blankLine: "always", prev: "directive", next: "*" },
+				{ blankLine: "any", prev: "directive", next: "directive" },
+				{ blankLine: "always", prev: "*", next: "return" },
+				{ blankLine: "always", prev: "block", next: "*" },
+				{ blankLine: "always", prev: "block-like", next: "*" },
+			],
 		},
 	},
 	{
@@ -115,6 +162,7 @@ export default tseslint.config(
 				},
 			],
 			"prefer-template": "off",
+			"padding-line-between-statements": "off",
 		},
 	},
 	eslintConfigPrettier,
