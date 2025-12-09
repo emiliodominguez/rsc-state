@@ -13,7 +13,7 @@
 
 ## Tech Stack
 
-- **Language**: TypeScript 5.3+
+- **Language**: TypeScript 5.8+
 - **Build**: tsup (dual CJS/ESM output)
 - **Testing**: Vitest
 - **Linting**: ESLint 9 (flat config)
@@ -300,7 +300,7 @@ npm run changeset:publish  # Publish to npm
 
 ### Add New API Method
 
-1. Update `types.ts` with interface definition
+1. Update `types.d.ts` with interface definition
 2. Implement in `create-store.ts` with full JSDoc
 3. Add tests in `tests/store.test.ts`
 4. Export from `src/index.ts`
@@ -326,7 +326,7 @@ npm run test:watch -- --reporter=verbose
 - [React `cache` API](https://react.dev/reference/react/cache)
 - [React Server Components](https://react.dev/reference/rsc/server-components)
 - [Next.js Server Components](https://nextjs.org/docs/app/building-your-application/rendering/server-components)
-- [TypeScript 5.3 Release](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-3.html)
+- [TypeScript 5.8 Release](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-8.html)
 
 ## Documentation Philosophy
 
