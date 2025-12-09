@@ -3,7 +3,7 @@ import { getUserFromCookie } from "@/lib/actions";
 import { settingsStore, userStore } from "@/lib/stores";
 
 export const metadata = {
-	title: "RSC State - Basic Example",
+	title: "RSC State - Next.js 14 Example",
 	description: "Demonstrating rsc-state with both storage modes",
 };
 
@@ -12,13 +12,15 @@ export const metadata = {
  *
  * 1. PERSISTENT (settingsStore): Just read - no initialization needed
  * 2. REQUEST (userStore): Must initialize from cookie each request
+ *
+ * Note: Next.js 14 uses synchronous cookies() API, so layout is not async.
  */
-export default async function RootLayout({ children }: { children: React.ReactNode }): Promise<React.ReactNode> {
+export default function RootLayout({ children }: { children: React.ReactNode }): React.ReactNode {
 	// PERSISTENT: Just read, state persists automatically
 	const settings = settingsStore.read();
 
-	// REQUEST: Must hydrate from cookie on each request
-	const userData = await getUserFromCookie();
+	// REQUEST: Must hydrate from cookie on each request (sync in Next.js 14)
+	const userData = getUserFromCookie();
 
 	if (userData) {
 		userStore.initialize(userData);

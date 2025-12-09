@@ -176,23 +176,38 @@ Creates a new server store.
 | `select(fn)`        | Select specific value: `(state) => value`                         |
 | `reset()`           | Reset to initial state                                            |
 
-## Example
+## Examples
 
-See the [basic example](./examples/basic) for a complete working demo:
+Working examples are available for different Next.js versions:
+
+| Version    | Directory                                | Notes                                    |
+| ---------- | ---------------------------------------- | ---------------------------------------- |
+| Next.js 14 | [`examples/next-14`](./examples/next-14) | Synchronous `cookies()` API              |
+| Next.js 15 | [`examples/next-15`](./examples/next-15) | Async `cookies()` API, Turbopack         |
+| Next.js 16 | [`examples/next-16`](./examples/next-16) | Async `cookies()` API, Turbopack default |
 
 ```bash
-cd examples/basic
+cd examples/next-15  # or next-14, next-16
 npm install
 npm run dev
 ```
 
-The example demonstrates:
+Each example demonstrates:
 
 - **Both storage modes** side by side
 - Request-scoped user store with cookie persistence
 - Persistent theme store without cookies
 - Reading state without prop drilling
 - Server Actions with revalidation
+
+### Framework Support
+
+| Framework      | RSC Status     | Support         |
+| -------------- | -------------- | --------------- |
+| Next.js 14+    | Stable         | ✅ Full support |
+| React Router 7 | Preview        | ⏳ Coming soon  |
+| TanStack Start | In development | ⏳ Coming soon  |
+| Waku           | Stable         | ⏳ Planned      |
 
 ## How It Works
 
