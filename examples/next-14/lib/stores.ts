@@ -1,48 +1,61 @@
+import { cache } from "react";
+import { cookies } from "next/headers";
+
 import { createServerStore } from "rsc-state";
 
+const USER_COOKIE = "user_session";
+
 /**
- * Settings store - PERSISTENT storage mode.
+ * Feature flags store - PERSISTENT storage mode.
  *
- * Theme is shared across all users (like a global app setting).
- * Persists across requests without cookies/database.
- *
- * Use persistent storage for:
- * - Feature flags
- * - App-wide configuration
- * - Demo/prototype state
+ * WARNING: Persistent storage is shared across ALL users and requests.
+ * Only use for truly global state like feature flags or app config.
+ * NOT suitable for user-specific data.
  */
-export const settingsStore = createServerStore({
-	debug: true,
+export const featureFlagsStore = createServerStore({
 	storage: "persistent",
 	initial: {
-		theme: "light" as "light" | "dark",
+		betaFeatures: false,
 	},
-	derive: (state) => ({
-		isDarkMode: state.theme === "dark",
-	}),
 });
 
 /**
  * User store - REQUEST storage mode (default).
- *
- * State is isolated per request using React's cache API.
- * Must be initialized each request (typically from cookies/session).
- *
- * Use request storage for:
- * - User-specific data (authentication, preferences)
- * - Data that differs between users
- * - Security-sensitive information
+ * State is isolated per request. Safe for user-specific data.
  */
 export const userStore = createServerStore({
-	debug: true,
 	storage: "request",
 	initial: {
 		userId: null as string | null,
 		userName: "",
 		userEmail: "",
+		theme: "light" as "light" | "dark",
 	},
 	derive: (state) => ({
 		isAuthenticated: state.userId !== null,
 		displayName: state.userName || "Guest",
+		isDarkMode: state.theme === "dark",
 	}),
+});
+
+/**
+ * Cached function to get user data from cookie and initialize store.
+ * Uses React's cache() to ensure this only runs once per request.
+ * Call this in any Server Component that needs user data.
+ *
+ * Note: Next.js 14 uses synchronous cookies() API.
+ */
+export const getUser = cache(() => {
+	const userCookie = cookies().get(USER_COOKIE);
+
+	if (userCookie) {
+		try {
+			const userData = JSON.parse(userCookie.value);
+			userStore.initialize(userData);
+		} catch {
+			// Invalid cookie
+		}
+	}
+
+	return userStore.read();
 });
