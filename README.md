@@ -91,6 +91,7 @@ import { userStore } from "@/lib/stores";
 
 export function Header() {
 	const user = userStore.read(); // No props needed!
+
 	return <h1>Welcome, {user.isAuthenticated ? user.userName : "Guest"}</h1>;
 }
 
@@ -101,8 +102,10 @@ import { revalidatePath } from "next/cache";
 
 export async function login(formData: FormData) {
 	const cookieStore = await cookies();
+
 	cookieStore.set("userId", "123");
 	cookieStore.set("userName", formData.get("name") as string);
+
 	revalidatePath("/"); // New request → layout re-initializes store
 }
 ```
@@ -143,7 +146,9 @@ import { settingsStore } from "./stores";
 
 export async function toggleTheme() {
 	const current = settingsStore.read().theme;
+
 	settingsStore.set({ theme: current === "light" ? "dark" : "light" });
+
 	revalidatePath("/");
 }
 ```

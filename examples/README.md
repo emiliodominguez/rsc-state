@@ -76,9 +76,11 @@ The examples use React's `cache()` API to ensure user state is initialized once 
 // Next.js 14 (sync)
 export const getUser = cache(() => {
 	const userCookie = cookies().get(USER_COOKIE);
+
 	if (userCookie) {
 		userStore.initialize(JSON.parse(userCookie.value));
 	}
+
 	return userStore.read();
 });
 
@@ -86,9 +88,11 @@ export const getUser = cache(() => {
 export const getUser = cache(async () => {
 	const cookieStore = await cookies();
 	const userCookie = cookieStore.get(USER_COOKIE);
+
 	if (userCookie) {
 		userStore.initialize(JSON.parse(userCookie.value));
 	}
+
 	return userStore.read();
 });
 ```
@@ -101,11 +105,13 @@ State updates happen through server actions that modify cookies and revalidate:
 export async function toggleTheme(): Promise<void> {
 	const cookieStore = await cookies();
 	const userCookie = cookieStore.get(USER_COOKIE);
+
 	if (userCookie) {
 		const userData = JSON.parse(userCookie.value);
 		const newTheme = userData.theme === "light" ? "dark" : "light";
 		cookieStore.set(USER_COOKIE, JSON.stringify({ ...userData, theme: newTheme }));
 	}
+
 	revalidatePath("/", "layout");
 }
 ```
