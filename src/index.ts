@@ -1,2 +1,2 @@
-export type { StorageMode, StoreConfig, ServerStore } from "./types";
+export type { BatchApi, ErrorContext, ServerStore, StorageMode, StoreConfig } from "./types";
 export { createServerStore } from "./create-store";

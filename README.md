@@ -8,7 +8,10 @@ Type-safe state management for React Server Components.
 - **Type-safe**: Full TypeScript inference with derived state
 - **Zero client JS**: Purely server-side using React's [`cache`](https://react.dev/reference/react/cache) API
 - **No hooks needed**: Direct read/write API for Server Components
-- **Derived state**: Compute values automatically from base state
+- **Derived state**: Compute values automatically from base state (memoized for performance)
+- **Lifecycle hooks**: `onInitialize`, `onUpdate`, `onReset` callbacks for logging and side effects
+- **Error boundaries**: Graceful error handling in derive functions with `onError` callback
+- **Batch updates**: Combine multiple updates for better performance
 
 ## Installation
 
@@ -161,12 +164,16 @@ Creates a new server store.
 
 **Parameters:**
 
-| Option    | Type                        | Description                                |
-| --------- | --------------------------- | ------------------------------------------ |
-| `initial` | `T \| () => T`              | Initial state value or factory function    |
-| `storage` | `"request" \| "persistent"` | Storage mode (default: `"request"`)        |
-| `derive`  | `(state: T) => D`           | Optional function to compute derived state |
-| `debug`   | `boolean`                   | Enable debug logging                       |
+| Option         | Type                                               | Description                                           |
+| -------------- | -------------------------------------------------- | ----------------------------------------------------- |
+| `initial`      | `T \| () => T`                                     | Initial state value or factory function               |
+| `storage`      | `"request" \| "persistent"`                        | Storage mode (default: `"request"`)                   |
+| `derive`       | `(state: T) => D`                                  | Optional function to compute derived state (memoized) |
+| `debug`        | `boolean`                                          | Enable debug logging                                  |
+| `onInitialize` | `(state: T) => void`                               | Callback after store initialization                   |
+| `onUpdate`     | `(previousState: T, nextState: T) => void`         | Callback after state updates                          |
+| `onReset`      | `() => void`                                       | Callback after store reset                            |
+| `onError`      | `(error: Error, context: ErrorContext<T>) => void` | Callback when derive function throws                  |
 
 **Returns:** `ServerStore<T, D>` instance
 
@@ -180,6 +187,93 @@ Creates a new server store.
 | `set(state)`        | Replace entire state                                              |
 | `select(fn)`        | Select specific value: `(state) => value`                         |
 | `reset()`           | Reset to initial state                                            |
+| `batch(fn)`         | Execute multiple updates, compute derived state once              |
+
+### Derived State Memoization
+
+Derived state is automatically memoized and only recalculated when the base state changes:
+
+```typescript
+const store = createServerStore({
+	initial: { items: [] as number[] },
+	derive: (state) => ({
+		// Only recalculated when `items` changes
+		total: state.items.reduce((sum, item) => sum + item, 0),
+		count: state.items.length,
+	}),
+});
+
+store.read(); // Computes derived state
+store.read(); // Returns cached result (no recomputation)
+store.update((s) => ({ items: [...s.items, 5] }));
+store.read(); // Recomputes derived state
+```
+
+### Lifecycle Hooks
+
+React to state changes with lifecycle callbacks:
+
+```typescript
+const store = createServerStore({
+	initial: { count: 0 },
+	onInitialize: (state) => {
+		console.log("Store initialized with:", state);
+	},
+	onUpdate: (previousState, nextState) => {
+		console.log("State changed from", previousState, "to", nextState);
+	},
+	onReset: () => {
+		console.log("Store was reset");
+	},
+});
+```
+
+### Error Handling
+
+Handle errors in derive functions gracefully:
+
+```typescript
+const store = createServerStore({
+	initial: { data: null as Data | null },
+	derive: (state) => ({
+		// This might throw if data is null
+		processedData: processData(state.data!),
+	}),
+	onError: (error, context) => {
+		console.error(`Error in ${context.method}:`, error.message);
+		// Report to error tracking service
+		reportError(error);
+	},
+});
+
+// When derive throws, base state is returned without derived properties
+const state = store.read(); // { data: null } - no crash!
+```
+
+### Batch Updates
+
+Combine multiple updates for better performance:
+
+```typescript
+const store = createServerStore({
+	initial: { count: 0, name: "" },
+	derive: (state) => ({
+		description: `${state.name} has count ${state.count}`,
+	}),
+});
+
+// Without batch: derived state recalculated 3 times
+store.update((s) => ({ ...s, count: s.count + 1 }));
+store.update((s) => ({ ...s, count: s.count + 1 }));
+store.set({ count: 100, name: "Final" });
+
+// With batch: derived state recalculated only once
+store.batch((api) => {
+	api.update((s) => ({ ...s, count: s.count + 1 }));
+	api.update((s) => ({ ...s, count: s.count + 1 }));
+	api.set({ count: 100, name: "Final" });
+});
+```
 
 ## Examples
 

@@ -1,6 +1,6 @@
 import { cache } from "react";
 
-import type { ServerStore, StorageMode, StoreConfig } from "./types";
+import type { BatchApi, ServerStore, StorageMode, StoreConfig } from "./types";
 
 /**
  * Creates a server store for managing state in React Server Components.
@@ -49,12 +49,14 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	const storageMode: StorageMode = configuration.storage?.toLowerCase() === "persistent" ? "persistent" : "request";
 
 	/**
-	 * Internal cache instance structure that holds the current state
-	 * and tracks whether the store has been initialized.
+	 * Internal cache instance structure that holds the current state,
+	 * tracks initialization, and caches derived state for memoization.
 	 */
 	interface CacheInstance {
 		state: State;
 		initialized: boolean;
+		lastDerivedBaseState: State | null;
+		cachedDerivedState: DerivedState | null;
 	}
 
 	/**
@@ -80,6 +82,8 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		return {
 			state: getInitialState(),
 			initialized: false,
+			lastDerivedBaseState: null,
+			cachedDerivedState: null,
 		};
 	});
 
@@ -92,6 +96,8 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		persistentInstance ??= {
 			state: getInitialState(),
 			initialized: false,
+			lastDerivedBaseState: null,
+			cachedDerivedState: null,
 		};
 
 		return persistentInstance;
@@ -108,19 +114,56 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 	/**
 	 * Computes derived state by applying the derive function to base state.
-	 * Returns base state unchanged if no derive function is configured.
+	 * Uses memoization to avoid recalculating when base state hasn't changed.
+	 * Handles errors gracefully by calling onError callback if configured.
 	 *
 	 * @param baseState - Current base state from store
+	 * @param cacheInstance - Cache instance for memoization storage
 	 * @returns Combined base state and derived state
 	 */
-	function computeDerivedState(baseState: State): FullState {
+	function computeDerivedState(baseState: State, cacheInstance: CacheInstance): FullState {
 		if (!configuration.derive) {
 			return baseState as FullState;
 		}
 
-		const derivedState = configuration.derive(baseState) as DerivedState;
+		// Return cached derived state if base state hasn't changed (reference equality)
+		if (baseState === cacheInstance.lastDerivedBaseState && cacheInstance.cachedDerivedState !== null) {
+			return { ...baseState, ...cacheInstance.cachedDerivedState } as FullState;
+		}
 
-		return { ...baseState, ...derivedState } as FullState;
+		try {
+			const derivedState = configuration.derive(baseState) as DerivedState;
+
+			// Cache the computed derived state
+			cacheInstance.lastDerivedBaseState = baseState;
+			cacheInstance.cachedDerivedState = derivedState;
+
+			return { ...baseState, ...derivedState } as FullState;
+		} catch (thrownError: unknown) {
+			const errorInstance = thrownError instanceof Error ? thrownError : new Error(String(thrownError));
+
+			if (configuration.onError) {
+				configuration.onError(errorInstance, { method: "derive", state: baseState });
+			}
+
+			if (configuration.debug) {
+				console.warn(`[rsc-state:${storageMode}] Error in derive function:`, errorInstance.message);
+			}
+
+			// Return base state without derived properties on error
+			return baseState as FullState;
+		}
+	}
+
+	/**
+	 * Invalidates the memoization cache, forcing derived state to be recalculated
+	 * on the next read. Called when base state changes.
+	 *
+	 * @param cacheInstance - Cache instance to invalidate
+	 */
+	function invalidateDerivedCache(cacheInstance: CacheInstance): void {
+		cacheInstance.lastDerivedBaseState = null;
+		cacheInstance.cachedDerivedState = null;
 	}
 
 	/**
@@ -136,9 +179,14 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 		cacheInstance.state = initialState;
 		cacheInstance.initialized = true;
+		invalidateDerivedCache(cacheInstance);
 
 		if (configuration.debug) {
 			console.log(`[rsc-state:${storageMode}] Initialized:`, initialState);
+		}
+
+		if (configuration.onInitialize) {
+			configuration.onInitialize(initialState);
 		}
 	}
 
@@ -155,7 +203,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 			console.warn(`[rsc-state:${storageMode}] Reading uninitialized store`);
 		}
 
-		return computeDerivedState(cacheInstance.state);
+		return computeDerivedState(cacheInstance.state, cacheInstance);
 	}
 
 	/**
@@ -166,11 +214,17 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 */
 	function update(updaterFunction: (previousState: State) => State): void {
 		const cacheInstance = getCacheInstance();
+		const previousState = cacheInstance.state;
 
-		cacheInstance.state = updaterFunction(cacheInstance.state);
+		cacheInstance.state = updaterFunction(previousState);
+		invalidateDerivedCache(cacheInstance);
 
 		if (configuration.debug) {
 			console.log(`[rsc-state:${storageMode}] Updated:`, cacheInstance.state);
+		}
+
+		if (configuration.onUpdate) {
+			configuration.onUpdate(previousState, cacheInstance.state);
 		}
 	}
 
@@ -182,11 +236,17 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 */
 	function set(newState: State): void {
 		const cacheInstance = getCacheInstance();
+		const previousState = cacheInstance.state;
 
 		cacheInstance.state = newState;
+		invalidateDerivedCache(cacheInstance);
 
 		if (configuration.debug) {
 			console.log(`[rsc-state:${storageMode}] Set:`, newState);
+		}
+
+		if (configuration.onUpdate) {
+			configuration.onUpdate(previousState, newState);
 		}
 	}
 
@@ -209,9 +269,47 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		const cacheInstance = getCacheInstance();
 
 		cacheInstance.state = getInitialState();
+		invalidateDerivedCache(cacheInstance);
 
 		if (configuration.debug) {
 			console.log(`[rsc-state:${storageMode}] Reset`);
+		}
+
+		if (configuration.onReset) {
+			configuration.onReset();
+		}
+	}
+
+	/**
+	 * Executes multiple state updates in a batch, computing derived state only once
+	 * after all updates complete. Improves performance when making multiple updates.
+	 *
+	 * @param callback - Function that receives a batch API with update and set methods
+	 * @returns void
+	 */
+	function batch(callback: (api: BatchApi<State>) => void): void {
+		const cacheInstance = getCacheInstance();
+		const initialState = cacheInstance.state;
+
+		const batchApi: BatchApi<State> = {
+			update: (updaterFunction: (previousState: State) => State): void => {
+				cacheInstance.state = updaterFunction(cacheInstance.state);
+			},
+			set: (newState: State): void => {
+				cacheInstance.state = newState;
+			},
+		};
+
+		callback(batchApi);
+
+		invalidateDerivedCache(cacheInstance);
+
+		if (configuration.debug) {
+			console.log(`[rsc-state:${storageMode}] Batch updated:`, cacheInstance.state);
+		}
+
+		if (configuration.onUpdate) {
+			configuration.onUpdate(initialState, cacheInstance.state);
 		}
 	}
 
@@ -222,5 +320,6 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		set,
 		select,
 		reset,
+		batch,
 	};
 }

@@ -1,9 +1,19 @@
-import { login, logout, toggleTheme, toggleBetaFeatures } from "@/lib/actions";
-import { getUser, featureFlagsStore } from "@/lib/stores";
+import {
+	login,
+	logout,
+	toggleTheme,
+	toggleBetaFeatures,
+	toggleMaintenanceMode,
+	enableAllFlags,
+	resetFeatureFlags,
+	toggleErrorSimulation,
+} from "@/lib/actions";
+import { getUser, featureFlagsStore, errorDemoStore } from "@/lib/stores";
 
 export default function HomePage(): React.ReactNode {
 	const user = getUser();
 	const featureFlags = featureFlagsStore.read();
+	const errorDemo = errorDemoStore.read();
 
 	return (
 		<div>
@@ -53,12 +63,56 @@ export default function HomePage(): React.ReactNode {
 				<p>
 					Beta features: <strong>{featureFlags.betaFeatures ? "Enabled" : "Disabled"}</strong>
 				</p>
+				<p>
+					Maintenance mode: <strong>{featureFlags.maintenanceMode ? "Enabled" : "Disabled"}</strong>
+				</p>
+				<p>
+					Status: <strong>{featureFlags.statusMessage}</strong>
+				</p>
 
-				<form action={toggleBetaFeatures}>
-					<button type="submit" className="btn btn-persistent btn-full">
-						{featureFlags.betaFeatures ? "Disable" : "Enable"} Beta Features
-					</button>
-				</form>
+				<p
+					className={`section-description text-muted ${user.isDarkMode ? "dark" : "light"}`}
+					style={{ marginTop: "1rem", fontSize: "0.85rem" }}
+				>
+					💡 Check the server console to see lifecycle hooks in action!
+				</p>
+
+				<div className="button-group" style={{ marginTop: "1rem" }}>
+					<form action={toggleBetaFeatures}>
+						<button type="submit" className="btn btn-persistent">
+							{featureFlags.betaFeatures ? "Disable" : "Enable"} Beta (onUpdate)
+						</button>
+					</form>
+
+					<form action={toggleMaintenanceMode}>
+						<button type="submit" className="btn btn-persistent">
+							{featureFlags.maintenanceMode ? "Disable" : "Enable"} Maintenance (onUpdate)
+						</button>
+					</form>
+
+					<form action={enableAllFlags}>
+						<button type="submit" className="btn btn-persistent">
+							Enable All (batch)
+						</button>
+					</form>
+
+					<form action={resetFeatureFlags}>
+						<button type="submit" className="btn btn-danger">
+							Reset Flags (onReset)
+						</button>
+					</form>
+				</div>
+
+				<div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid rgba(128, 128, 128, 0.3)" }}>
+					<p style={{ fontSize: "0.9rem", marginBottom: "0.5rem" }}>
+						<strong>Error Demo:</strong> Status: {errorDemo.status ?? "Error caught!"}
+					</p>
+					<form action={toggleErrorSimulation}>
+						<button type="submit" className="btn btn-danger">
+							{errorDemo.simulateError ? "Disable" : "Enable"} Error (onError)
+						</button>
+					</form>
+				</div>
 			</section>
 
 			<section className={`section section-request ${user.isDarkMode ? "dark" : "light"}`}>

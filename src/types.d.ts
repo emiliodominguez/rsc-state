@@ -12,6 +12,21 @@
 export type StorageMode = "request" | "persistent";
 
 /**
+ * Context information provided to the onError callback when an error occurs.
+ */
+export interface ErrorContext<T> {
+	/**
+	 * The name of the store method where the error occurred.
+	 */
+	method: string;
+
+	/**
+	 * The current base state at the time of the error.
+	 */
+	state: T;
+}
+
+/**
  * Configuration object for creating a server store.
  * Defines the initial state structure and optional derived state computation.
  */
@@ -38,7 +53,7 @@ export interface StoreConfig<T extends Record<string, unknown>> {
 
 	/**
 	 * Optional function to compute derived state from base state.
-	 * Derived state is recalculated whenever base state is read.
+	 * Derived state is memoized and only recalculated when base state changes.
 	 *
 	 * @param state - Current base state
 	 * @returns Object containing derived state properties
@@ -52,6 +67,89 @@ export interface StoreConfig<T extends Record<string, unknown>> {
 	 * ```
 	 */
 	derive?: (state: T) => Record<string, unknown>;
+
+	/**
+	 * Callback invoked when an error occurs in the derive function.
+	 * Allows graceful error handling without crashing the store.
+	 *
+	 * @param error - The error that was thrown
+	 * @param context - Context information including method name and current state
+	 *
+	 * @example
+	 * ```typescript
+	 * onError: (error, context) => {
+	 *   console.error(`Store error in ${context.method}:`, error);
+	 *   reportToErrorService(error);
+	 * }
+	 * ```
+	 */
+	onError?: (error: Error, context: ErrorContext<T>) => void;
+
+	/**
+	 * Callback invoked after the store is initialized with state.
+	 * Useful for logging, analytics, or side effects on initialization.
+	 *
+	 * @param state - The initial state that was set
+	 *
+	 * @example
+	 * ```typescript
+	 * onInitialize: (state) => {
+	 *   console.log('Store initialized with:', state);
+	 * }
+	 * ```
+	 */
+	onInitialize?: (state: T) => void;
+
+	/**
+	 * Callback invoked after state is updated via update() or set().
+	 * Receives both the previous and new state for comparison.
+	 *
+	 * @param previousState - State before the update
+	 * @param nextState - State after the update
+	 *
+	 * @example
+	 * ```typescript
+	 * onUpdate: (previous, next) => {
+	 *   console.log('State changed from', previous, 'to', next);
+	 * }
+	 * ```
+	 */
+	onUpdate?: (previousState: T, nextState: T) => void;
+
+	/**
+	 * Callback invoked after the store is reset to initial state.
+	 * Useful for cleanup or logging reset events.
+	 *
+	 * @example
+	 * ```typescript
+	 * onReset: () => {
+	 *   console.log('Store was reset to initial state');
+	 * }
+	 * ```
+	 */
+	onReset?: () => void;
+}
+
+/**
+ * API object provided to the batch callback function.
+ * Contains methods for updating state without triggering derived state computation.
+ */
+export interface BatchApi<T> {
+	/**
+	 * Updates state by applying a reducer function.
+	 * Derived state is not computed until the batch completes.
+	 *
+	 * @param updaterFunction - Function that transforms previous state to new state
+	 */
+	update(updaterFunction: (previousState: T) => T): void;
+
+	/**
+	 * Replaces the entire state with a new state object.
+	 * Derived state is not computed until the batch completes.
+	 *
+	 * @param newState - Complete new state object
+	 */
+	set(newState: T): void;
 }
 
 /**
@@ -110,4 +208,21 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 * @returns void
 	 */
 	reset(): void;
+
+	/**
+	 * Executes multiple state updates in a batch, computing derived state only once
+	 * after all updates complete. Improves performance when making multiple updates.
+	 *
+	 * @param callback - Function that receives a batch API with update and set methods
+	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * store.batch((api) => {
+	 *   api.update((state) => ({ ...state, count: state.count + 1 }));
+	 *   api.update((state) => ({ ...state, name: 'updated' }));
+	 * }); // Derived state computed once after both updates
+	 * ```
+	 */
+	batch(callback: (api: BatchApi<T>) => void): void;
 }
