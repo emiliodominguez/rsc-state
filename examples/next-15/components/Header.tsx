@@ -1,28 +1,32 @@
-import { settingsStore, userStore } from "@/lib/stores";
+import Link from "next/link";
 
-/**
- * Header component - reads from stores without any props.
- * Demonstrates: no prop drilling needed.
- */
-export function Header(): React.ReactNode {
-	const user = userStore.read();
-	const settings = settingsStore.read();
+import { getUser, featureFlagsStore } from "@/lib/stores";
+
+export async function Header(): Promise<React.ReactNode> {
+	const user = await getUser();
+	const featureFlags = featureFlagsStore.read();
 
 	return (
-		<header
-			style={{
-				padding: "1rem 2rem",
-				backgroundColor: settings.isDarkMode ? "#1a1a1a" : "#fff",
-				color: settings.isDarkMode ? "#fff" : "#000",
-				borderBottom: `1px solid ${settings.isDarkMode ? "#333" : "#eee"}`,
-				display: "flex",
-				justifyContent: "space-between",
-				alignItems: "center",
-			}}
-		>
-			<strong>RSC State Demo</strong>
+		<header className={`header ${user.isDarkMode ? "dark" : "light"}`}>
+			<div className="header-content">
+				<div className="header-left">
+					<div className="header-brand">
+						<strong>RSC State Demo</strong>
+						{featureFlags.betaFeatures && <span className="badge badge-beta">BETA</span>}
+					</div>
 
-			<span>{user.isAuthenticated ? `Hello, ${user.displayName}` : "Not logged in"}</span>
+					<nav className="nav">
+						<Link href="/" className={`nav-link ${user.isDarkMode ? "dark" : "light"}`}>
+							Home
+						</Link>
+						<Link href="/about" className={`nav-link ${user.isDarkMode ? "dark" : "light"}`}>
+							About
+						</Link>
+					</nav>
+				</div>
+
+				<span className="header-user">{user.isAuthenticated ? `Hello, ${user.displayName}` : "Not logged in"}</span>
+			</div>
 		</header>
 	);
 }

@@ -1,120 +1,70 @@
-import { login, logout, toggleTheme } from "@/lib/actions";
-import { settingsStore, userStore } from "@/lib/stores";
+import { login, logout, toggleTheme, toggleBetaFeatures } from "@/lib/actions";
+import { getUser, featureFlagsStore } from "@/lib/stores";
 
-export default function HomePage(): React.ReactNode {
-	const user = userStore.read();
-	const settings = settingsStore.read();
+export default async function HomePage(): Promise<React.ReactNode> {
+	const user = await getUser();
+	const featureFlags = featureFlagsStore.read();
 
 	return (
 		<div>
 			<h1>RSC State Demo</h1>
 
-			<section style={{ marginBottom: "2rem" }}>
+			<section className="section">
 				<h2>Storage Modes Comparison</h2>
 
-				<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
-					<div
-						style={{
-							padding: "1rem",
-							backgroundColor: settings.isDarkMode ? "#1e3a1e" : "#e8f5e9",
-							borderRadius: "8px",
-							borderLeft: "4px solid #4caf50",
-						}}
-					>
-						<strong style={{ color: "#4caf50" }}>PERSISTENT Storage</strong>
-
-						<p style={{ margin: "0.5rem 0", fontSize: "0.875rem" }}>
+				<div className="grid-comparison">
+					<div className={`comparison-card comparison-card-persistent ${user.isDarkMode ? "dark" : "light"}`}>
+						<strong className="comparison-title-persistent">PERSISTENT Storage</strong>{" "}
+						<p className="comparison-code">
 							<code>storage: &quot;persistent&quot;</code>
 						</p>
-
-						<ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.875rem", lineHeight: "1.6" }}>
+						<ul className="comparison-list">
 							<li>No initialization needed</li>
 							<li>Survives across requests</li>
 							<li>Shared across ALL users</li>
 							<li>Lost on server restart</li>
 						</ul>
-
-						<p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: settings.isDarkMode ? "#aaa" : "#666" }}>
-							Best for: Feature flags, app config, demos
-						</p>
+						<p className={`comparison-hint ${user.isDarkMode ? "dark" : "light"}`}>Best for: Feature flags, app config</p>
 					</div>
 
-					<div
-						style={{
-							padding: "1rem",
-							backgroundColor: settings.isDarkMode ? "#1e3a5a" : "#e3f2fd",
-							borderRadius: "8px",
-							borderLeft: "4px solid #2196f3",
-						}}
-					>
-						<strong style={{ color: "#2196f3" }}>REQUEST Storage</strong>
-
-						<p style={{ margin: "0.5rem 0", fontSize: "0.875rem" }}>
+					<div className={`comparison-card comparison-card-request ${user.isDarkMode ? "dark" : "light"}`}>
+						<strong className="comparison-title-request">REQUEST Storage</strong>{" "}
+						<p className="comparison-code">
 							<code>storage: &quot;request&quot;</code> (default)
 						</p>
-
-						<ul style={{ margin: 0, paddingLeft: "1.2rem", fontSize: "0.875rem", lineHeight: "1.6" }}>
+						<ul className="comparison-list">
 							<li>Initialize each request</li>
 							<li>Isolated per request</li>
 							<li>Safe for user data</li>
 							<li>Use with cookies/DB</li>
 						</ul>
-
-						<p style={{ margin: "0.5rem 0 0", fontSize: "0.8rem", color: settings.isDarkMode ? "#aaa" : "#666" }}>
-							Best for: User sessions, auth, preferences
-						</p>
+						<p className={`comparison-hint ${user.isDarkMode ? "dark" : "light"}`}>Best for: User sessions, auth, preferences</p>
 					</div>
 				</div>
 			</section>
 
-			<section
-				style={{
-					padding: "1.5rem",
-					backgroundColor: settings.isDarkMode ? "#1e3a1e" : "#e8f5e9",
-					borderRadius: "8px",
-					marginBottom: "2rem",
-					border: "1px solid #4caf50",
-				}}
-			>
-				<h2 style={{ marginTop: 0, color: "#4caf50" }}>Theme (Persistent Storage)</h2>
+			<section className={`section section-persistent ${user.isDarkMode ? "dark" : "light"}`}>
+				<h2 className="section-title section-title-persistent">Feature Flags (Persistent Storage)</h2>
 
-				<p style={{ fontSize: "0.875rem", color: settings.isDarkMode ? "#aaa" : "#666" }}>
-					No cookies! State persists in module memory. Shared across all users.
+				<p className={`section-description text-muted ${user.isDarkMode ? "dark" : "light"}`}>
+					No cookies needed! State persists in module memory. Shared across ALL users.
 				</p>
 
 				<p>
-					Current theme: <strong>{settings.theme}</strong>
+					Beta features: <strong>{featureFlags.betaFeatures ? "Enabled" : "Disabled"}</strong>
 				</p>
 
-				<form action={toggleTheme}>
-					<button
-						type="submit"
-						style={{
-							padding: "0.75rem 1.5rem",
-							backgroundColor: "#4caf50",
-							color: "#fff",
-							border: "none",
-							borderRadius: "4px",
-							cursor: "pointer",
-						}}
-					>
-						Switch to {settings.isDarkMode ? "Light" : "Dark"} Mode
+				<form action={toggleBetaFeatures}>
+					<button type="submit" className="btn btn-persistent btn-full">
+						{featureFlags.betaFeatures ? "Disable" : "Enable"} Beta Features
 					</button>
 				</form>
 			</section>
 
-			<section
-				style={{
-					padding: "1.5rem",
-					backgroundColor: settings.isDarkMode ? "#1e3a5a" : "#e3f2fd",
-					borderRadius: "8px",
-					marginBottom: "2rem",
-					border: "1px solid #2196f3",
-				}}
-			>
-				<h2 style={{ marginTop: 0, color: "#2196f3" }}>User (Request Storage)</h2>
+			<section className={`section section-request ${user.isDarkMode ? "dark" : "light"}`}>
+				<h2 className="section-title section-title-request">User (Request Storage)</h2>
 
-				<p style={{ fontSize: "0.875rem", color: settings.isDarkMode ? "#aaa" : "#666" }}>
+				<p className={`section-description text-muted ${user.isDarkMode ? "dark" : "light"}`}>
 					Hydrated from cookie each request. Isolated per user. Safe for sensitive data.
 				</p>
 
@@ -124,84 +74,44 @@ export default function HomePage(): React.ReactNode {
 							Logged in as: <strong>{user.displayName}</strong> ({user.userEmail})
 						</p>
 
-						<form action={logout}>
-							<button
-								type="submit"
-								style={{
-									padding: "0.75rem 1.5rem",
-									backgroundColor: "#dc3545",
-									color: "#fff",
-									border: "none",
-									borderRadius: "4px",
-									cursor: "pointer",
-								}}
-							>
-								Logout
-							</button>
-						</form>
+						<p>
+							Theme: <strong>{user.theme}</strong>
+						</p>
+
+						<div className="button-group">
+							<form action={toggleTheme}>
+								<button type="submit" className="btn btn-request">
+									Switch to {user.isDarkMode ? "Light" : "Dark"} Mode
+								</button>
+							</form>
+
+							<form action={logout}>
+								<button type="submit" className="btn btn-danger">
+									Logout
+								</button>
+							</form>
+						</div>
 					</>
 				) : (
-					<form action={login} style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: "300px" }}>
-						<input
-							type="text"
-							name="userName"
-							placeholder="Name"
-							required
-							style={{
-								padding: "0.75rem",
-								border: "1px solid #ccc",
-								borderRadius: "4px",
-								fontSize: "1rem",
-								backgroundColor: settings.isDarkMode ? "#333" : "#fff",
-								color: settings.isDarkMode ? "#fff" : "#000",
-							}}
-						/>
+					<form action={login} className="form-login">
+						<input type="text" name="userName" placeholder="Name" required className={`input ${user.isDarkMode ? "dark" : "light"}`} />
 
-						<input
-							type="email"
-							name="userEmail"
-							placeholder="Email"
-							required
-							style={{
-								padding: "0.75rem",
-								border: "1px solid #ccc",
-								borderRadius: "4px",
-								fontSize: "1rem",
-								backgroundColor: settings.isDarkMode ? "#333" : "#fff",
-								color: settings.isDarkMode ? "#fff" : "#000",
-							}}
-						/>
+						<input type="email" name="userEmail" placeholder="Email" required className={`input ${user.isDarkMode ? "dark" : "light"}`} />
 
-						<button
-							type="submit"
-							style={{
-								padding: "0.75rem 1.5rem",
-								backgroundColor: "#2196f3",
-								color: "#fff",
-								border: "none",
-								borderRadius: "4px",
-								cursor: "pointer",
-							}}
-						>
+						<button type="submit" className="btn btn-request">
 							Login
 						</button>
 					</form>
 				)}
 			</section>
 
-			<section
-				style={{
-					padding: "1.5rem",
-					backgroundColor: settings.isDarkMode ? "#2a2a2a" : "#f5f5f5",
-					borderRadius: "8px",
-				}}
-			>
-				<h2 style={{ marginTop: 0 }}>Current Store State</h2>
+			<section className={`section section-neutral ${user.isDarkMode ? "dark" : "light"}`}>
+				<h2 className="section-title">Current Store State</h2>
 
-				<pre style={{ margin: 0, fontSize: "0.875rem", overflow: "auto" }}>
+				<pre className="state-display">
 					{JSON.stringify(
 						{
-							settings: { ...settings, storageMode: "persistent" },
+							featureFlags: { ...featureFlags, storageMode: "persistent" },
 							user: { ...user, storageMode: "request" },
 						},
 						null,
