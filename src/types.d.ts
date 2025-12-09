@@ -1,8 +1,35 @@
 /**
+ * Storage mode for the server store.
+ *
+ * - `"request"` (default): State is isolated per request using React's cache API.
+ *   Safe for user-specific data. State resets on each new request.
+ *
+ * - `"persistent"`: State persists across requests using module-level storage.
+ *   WARNING: State is shared across ALL users. Only use for global app state
+ *   (e.g., feature flags, app config). Not suitable for user-specific data.
+ *   State is lost on server restart and not synced across server instances.
+ */
+export type StorageMode = "request" | "persistent";
+
+/**
  * Configuration object for creating a server store.
  * Defines the initial state structure and optional derived state computation.
  */
 export interface StoreConfig<T extends Record<string, unknown>> {
+	/**
+	 * Storage mode for the store. Defaults to "request".
+	 *
+	 * - `"request"`: State isolated per request (safe for user data)
+	 * - `"persistent"`: State shared across requests (global app state only)
+	 */
+	storage?: StorageMode;
+
+	/**
+	 * Enable debug logging to console for development.
+	 * Logs initialization, updates, and state changes.
+	 */
+	debug?: boolean;
+
 	/**
 	 * Initial state value or factory function that returns initial state.
 	 * Use factory function when initial state depends on runtime values.
@@ -25,12 +52,6 @@ export interface StoreConfig<T extends Record<string, unknown>> {
 	 * ```
 	 */
 	derive?: (state: T) => Record<string, unknown>;
-
-	/**
-	 * Enable debug logging to console for development.
-	 * Logs initialization, updates, and state changes.
-	 */
-	debug?: boolean;
 }
 
 /**

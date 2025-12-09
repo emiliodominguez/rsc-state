@@ -1,2 +1,2 @@
-export type { StoreConfig, ServerStore } from "./types";
+export type { StorageMode, StoreConfig, ServerStore } from "./types";
 export { createServerStore } from "./create-store";

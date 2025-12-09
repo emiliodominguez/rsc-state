@@ -1,43 +1,40 @@
 import { cache } from "react";
 
-import type { ServerStore, StoreConfig } from "./types";
+import type { ServerStore, StorageMode, StoreConfig } from "./types";
 
 /**
- * Creates a request-scoped server store for managing state in React Server Components.
+ * Creates a server store for managing state in React Server Components.
  *
- * The store uses React's cache API to ensure state is isolated per request and
- * automatically invalidated between requests. This prevents state leakage between
- * different users or concurrent requests.
+ * Supports two storage modes:
+ * - `"request"` (default): State isolated per request using React's cache API.
+ *   Safe for user-specific data. Prevents state leakage between users.
+ * - `"persistent"`: State persists across requests using module-level storage.
+ *   Shared across ALL users. Only use for global app state.
  *
  * State can be read from any Server Component in the tree without prop drilling.
- * Updates are performed via Server Actions and trigger revalidation.
  *
  * @param configuration - Store configuration with initial state and optional derived state
  * @returns Store instance with methods to initialize, read, and update state
  *
  * @example
- * Basic usage with authentication state
+ * Request-scoped store (safe for user data)
  * ```typescript
  * const userStore = createServerStore({
- *   initial: {
- *     userId: null as string | null,
- *     userName: '',
- *     userRole: 'guest' as 'admin' | 'user' | 'guest'
- *   },
+ *   initial: { userId: null, userName: '' },
  *   derive: (state) => ({
- *     isAuthenticated: state.userId !== null,
- *     isAdministrator: state.userRole === 'admin'
+ *     isAuthenticated: state.userId !== null
  *   })
  * });
  * ```
  *
  * @example
- * Using factory function for initial state
+ * Persistent store (global app state only)
  * ```typescript
- * const sessionStore = createServerStore({
- *   initial: () => ({
- *     sessionId: generateId(),
- *     createdAt: Date.now()
+ * const settingsStore = createServerStore({
+ *   storage: "persistent",
+ *   initial: { theme: "light" },
+ *   derive: (state) => ({
+ *     isDarkMode: state.theme === "dark"
  *   })
  * });
  * ```
@@ -49,9 +46,11 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	type DerivedState = D;
 	type FullState = State & DerivedState;
 
+	const storageMode: StorageMode = configuration.storage?.toLowerCase() === "persistent" ? "persistent" : "request";
+
 	/**
 	 * Internal cache instance structure that holds the current state
-	 * and tracks whether the store has been initialized for this request.
+	 * and tracks whether the store has been initialized.
 	 */
 	interface CacheInstance {
 		state: State;
@@ -59,17 +58,53 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	}
 
 	/**
-	 * React cache instance that stores state for the current request.
+	 * Module-level storage for persistent mode.
+	 * WARNING: Shared across all users and requests.
+	 */
+	let persistentInstance: CacheInstance | null = null;
+
+	/**
+	 * Gets the initial state from configuration.
+	 *
+	 * @returns Initial state value
+	 */
+	function getInitialState(): State {
+		return typeof configuration.initial === "function" ? (configuration.initial as () => T)() : configuration.initial;
+	}
+
+	/**
+	 * React cache instance for request-scoped mode.
 	 * Cache is automatically invalidated between requests, ensuring isolation.
 	 */
-	const getCacheInstance = cache((): CacheInstance => {
-		const initialState = typeof configuration.initial === "function" ? (configuration.initial as () => T)() : configuration.initial;
-
+	const getRequestScopedInstance = cache((): CacheInstance => {
 		return {
-			state: initialState,
+			state: getInitialState(),
 			initialized: false,
 		};
 	});
+
+	/**
+	 * Gets the persistent instance, creating it if needed.
+	 *
+	 * @returns Persistent cache instance
+	 */
+	function getPersistentInstance(): CacheInstance {
+		persistentInstance ??= {
+			state: getInitialState(),
+			initialized: false,
+		};
+
+		return persistentInstance;
+	}
+
+	/**
+	 * Gets the appropriate cache instance based on storage mode.
+	 *
+	 * @returns Cache instance for current storage mode
+	 */
+	function getCacheInstance(): CacheInstance {
+		return storageMode === "persistent" ? getPersistentInstance() : getRequestScopedInstance();
+	}
 
 	/**
 	 * Computes derived state by applying the derive function to base state.
@@ -89,10 +124,11 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	}
 
 	/**
-	 * Initializes the store with starting values for the current request.
-	 * Should be called once per request, typically in root layout after authentication.
+	 * Initializes the store with starting values.
+	 * For request-scoped: called once per request in root layout.
+	 * For persistent: called once on first access or to reset values.
 	 *
-	 * @param initialState - Starting state values for this request
+	 * @param initialState - Starting state values
 	 * @returns void
 	 */
 	function initialize(initialState: State): void {
@@ -102,14 +138,13 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		cacheInstance.initialized = true;
 
 		if (configuration.debug) {
-			console.log("[rsc-state] Initialized:", initialState);
+			console.log(`[rsc-state:${storageMode}] Initialized:`, initialState);
 		}
 	}
 
 	/**
 	 * Reads current state including derived properties.
 	 * Can be called from any Server Component in the tree.
-	 * Logs warning in debug mode if reading before initialization.
 	 *
 	 * @returns Combined base and derived state
 	 */
@@ -117,7 +152,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		const cacheInstance = getCacheInstance();
 
 		if (!cacheInstance.initialized && configuration.debug) {
-			console.warn("[rsc-state] Reading uninitialized store");
+			console.warn(`[rsc-state:${storageMode}] Reading uninitialized store`);
 		}
 
 		return computeDerivedState(cacheInstance.state);
@@ -125,7 +160,6 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 	/**
 	 * Updates state by applying a reducer function to previous state.
-	 * The reducer receives current state and must return a new state object.
 	 *
 	 * @param updaterFunction - Function that transforms previous state to new state
 	 * @returns void
@@ -136,13 +170,12 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		cacheInstance.state = updaterFunction(cacheInstance.state);
 
 		if (configuration.debug) {
-			console.log("[rsc-state] Updated:", cacheInstance.state);
+			console.log(`[rsc-state:${storageMode}] Updated:`, cacheInstance.state);
 		}
 	}
 
 	/**
 	 * Replaces entire state with a new state object.
-	 * Use when setting multiple properties at once is more convenient than using update.
 	 *
 	 * @param newState - Complete new state object
 	 * @returns void
@@ -153,13 +186,12 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		cacheInstance.state = newState;
 
 		if (configuration.debug) {
-			console.log("[rsc-state] Set:", newState);
+			console.log(`[rsc-state:${storageMode}] Set:`, newState);
 		}
 	}
 
 	/**
 	 * Selects and returns a specific value from state using a selector function.
-	 * Useful for reading single properties without destructuring entire state object.
 	 *
 	 * @param selectorFunction - Function that extracts desired value from state
 	 * @returns Selected value extracted from state
@@ -170,17 +202,16 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 	/**
 	 * Resets state back to initial values defined in configuration.
-	 * If initial was a factory function, the function is called again to generate new initial state.
 	 *
 	 * @returns void
 	 */
 	function reset(): void {
 		const cacheInstance = getCacheInstance();
 
-		cacheInstance.state = typeof configuration.initial === "function" ? (configuration.initial as () => T)() : configuration.initial;
+		cacheInstance.state = getInitialState();
 
 		if (configuration.debug) {
-			console.log("[rsc-state] Reset");
+			console.log(`[rsc-state:${storageMode}] Reset`);
 		}
 	}
 
