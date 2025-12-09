@@ -1,6 +1,6 @@
 {
 	"name": "rsc-state",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Type-safe state management for React Server Components",
 	"main": "./dist/index.js",
 	"module": "./dist/index.mjs",
@@ -41,16 +41,16 @@
 		"rsc",
 		"typescript"
 	],
-	"author": "",
+	"author": "Emilio Dominguez <emilioadominguezb@gmail.com>",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/yourusername/rsc-state.git"
+		"url": "git+https://github.com/emiliodominguez/rsc-state.git"
 	},
 	"bugs": {
-		"url": "https://github.com/yourusername/rsc-state/issues"
+		"url": "https://github.com/emiliodominguez/rsc-state/issues"
 	},
-	"homepage": "https://github.com/yourusername/rsc-state#readme",
+	"homepage": "https://github.com/emiliodominguez/rsc-state#readme",
 	"devDependencies": {
 		"@changesets/cli": "^2.29.0",
 		"@commitlint/cli": "^19.8.1",

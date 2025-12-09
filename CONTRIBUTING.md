@@ -5,7 +5,7 @@ Thank you for your interest in contributing!
 ## Development Setup
 
 ```bash
-git clone https://github.com/yourusername/rsc-state.git
+git clone https://github.com/emiliodominguez/rsc-state.git
 cd rsc-state
 npm install
 ```

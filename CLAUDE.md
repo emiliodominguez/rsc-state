@@ -405,5 +405,5 @@ See `src/create-store.ts` for reference implementations of:
 
 ## Contact
 
-- Issues: [GitHub Issues](https://github.com/yourusername/rsc-state/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/rsc-state/discussions)
+- Issues: [GitHub Issues](https://github.com/emiliodominguez/rsc-state/issues)
+- Discussions: [GitHub Discussions](https://github.com/emiliodominguez/rsc-state/discussions)
