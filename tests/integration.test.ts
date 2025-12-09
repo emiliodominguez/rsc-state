@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
+
 import { createServerStore } from "../src";
 
 describe("integration tests", () => {
 	describe("authentication flow", () => {
-		it("handles full authentication lifecycle", () => {
+		it("should handle full authentication lifecycle", () => {
+			// Given
 			const authStore = createServerStore({
 				initial: {
 					userId: null as string | null,
@@ -16,34 +18,38 @@ describe("integration tests", () => {
 				}),
 			});
 
-			// Initial state - not authenticated
-			expect(authStore.read().isAuthenticated).toBe(false);
-			expect(authStore.read().isAdministrator).toBe(false);
+			// Then - initial state is not authenticated
+			expect(authStore.read().isAuthenticated).toEqual(false);
+			expect(authStore.read().isAdministrator).toEqual(false);
 
-			// Simulate login
+			// When - simulate login
 			authStore.initialize({
 				userId: "user-123",
 				userName: "John Doe",
 				userRole: "admin",
 			});
 
+			// Then - user is authenticated
 			const authenticatedState = authStore.read();
-			expect(authenticatedState.isAuthenticated).toBe(true);
-			expect(authenticatedState.isAdministrator).toBe(true);
-			expect(authenticatedState.userName).toBe("John Doe");
+			expect(authenticatedState.isAuthenticated).toEqual(true);
+			expect(authenticatedState.isAdministrator).toEqual(true);
+			expect(authenticatedState.userName).toEqual("John Doe");
 
-			// Update user role
+			// When - update user role
 			authStore.update((previous) => ({
 				...previous,
 				userRole: "user",
 			}));
 
-			expect(authStore.read().isAdministrator).toBe(false);
-			expect(authStore.read().isAuthenticated).toBe(true);
+			// Then - user is no longer administrator
+			expect(authStore.read().isAdministrator).toEqual(false);
+			expect(authStore.read().isAuthenticated).toEqual(true);
 
-			// Logout
+			// When - logout
 			authStore.reset();
-			expect(authStore.read().isAuthenticated).toBe(false);
+
+			// Then - user is not authenticated
+			expect(authStore.read().isAuthenticated).toEqual(false);
 		});
 	});
 
@@ -55,7 +61,8 @@ describe("integration tests", () => {
 			pricePerUnit: number;
 		}
 
-		it("handles cart operations with derived totals", () => {
+		it("should handle cart operations with derived totals", () => {
+			// Given
 			const cartStore = createServerStore({
 				initial: {
 					items: [] as CartItem[],
@@ -68,11 +75,11 @@ describe("integration tests", () => {
 				}),
 			});
 
-			// Empty cart
-			expect(cartStore.read().itemCount).toBe(0);
-			expect(cartStore.read().subtotal).toBe(0);
+			// Then - empty cart
+			expect(cartStore.read().itemCount).toEqual(0);
+			expect(cartStore.read().subtotal).toEqual(0);
 
-			// Add first item
+			// When - add first item
 			cartStore.update((previous) => ({
 				...previous,
 				items: [
@@ -86,10 +93,11 @@ describe("integration tests", () => {
 				],
 			}));
 
-			expect(cartStore.read().itemCount).toBe(2);
-			expect(cartStore.read().subtotal).toBe(20);
+			// Then - cart has first item
+			expect(cartStore.read().itemCount).toEqual(2);
+			expect(cartStore.read().subtotal).toEqual(20);
 
-			// Add second item
+			// When - add second item
 			cartStore.update((previous) => ({
 				...previous,
 				items: [
@@ -103,26 +111,31 @@ describe("integration tests", () => {
 				],
 			}));
 
-			expect(cartStore.read().itemCount).toBe(3);
-			expect(cartStore.read().subtotal).toBe(45);
+			// Then - cart has both items
+			expect(cartStore.read().itemCount).toEqual(3);
+			expect(cartStore.read().subtotal).toEqual(45);
 
-			// Apply coupon
+			// When - apply coupon
 			cartStore.update((previous) => ({
 				...previous,
 				couponCode: "SAVE10",
 			}));
 
-			expect(cartStore.read().hasCoupon).toBe(true);
+			// Then - coupon is applied
+			expect(cartStore.read().hasCoupon).toEqual(true);
 
-			// Clear cart
+			// When - clear cart
 			cartStore.reset();
-			expect(cartStore.read().itemCount).toBe(0);
-			expect(cartStore.read().hasCoupon).toBe(false);
+
+			// Then - cart is empty
+			expect(cartStore.read().itemCount).toEqual(0);
+			expect(cartStore.read().hasCoupon).toEqual(false);
 		});
 	});
 
 	describe("nested state management", () => {
-		it("handles deeply nested state updates", () => {
+		it("should handle deeply nested state updates", () => {
+			// Given
 			const formStore = createServerStore({
 				initial: {
 					formData: {
@@ -150,10 +163,10 @@ describe("integration tests", () => {
 				}),
 			});
 
-			// Initially incomplete
-			expect(formStore.read().isPersonalInformationComplete).toBe(false);
+			// Then - initially incomplete
+			expect(formStore.read().isPersonalInformationComplete).toEqual(false);
 
-			// Fill personal info
+			// When - fill personal info
 			formStore.update((previous) => ({
 				...previous,
 				formData: {
@@ -166,9 +179,10 @@ describe("integration tests", () => {
 				},
 			}));
 
-			expect(formStore.read().isPersonalInformationComplete).toBe(true);
+			// Then - personal info is complete
+			expect(formStore.read().isPersonalInformationComplete).toEqual(true);
 
-			// Add validation error
+			// When - add validation error
 			formStore.update((previous) => ({
 				...previous,
 				validationErrors: {
@@ -176,20 +190,23 @@ describe("integration tests", () => {
 				},
 			}));
 
-			expect(formStore.read().hasValidationErrors).toBe(true);
+			// Then - has validation errors
+			expect(formStore.read().hasValidationErrors).toEqual(true);
 
-			// Clear errors
+			// When - clear errors
 			formStore.update((previous) => ({
 				...previous,
 				validationErrors: {},
 			}));
 
-			expect(formStore.read().hasValidationErrors).toBe(false);
+			// Then - no validation errors
+			expect(formStore.read().hasValidationErrors).toEqual(false);
 		});
 	});
 
 	describe("multiple stores", () => {
-		it("maintains independent state across stores", () => {
+		it("should maintain independent state across stores", () => {
+			// Given
 			const userStore = createServerStore({
 				initial: { userName: "" },
 			});
@@ -198,18 +215,21 @@ describe("integration tests", () => {
 				initial: { darkModeEnabled: false, languageCode: "en" },
 			});
 
+			// When - initialize both stores
 			userStore.initialize({ userName: "Alice" });
 			settingsStore.initialize({ darkModeEnabled: true, languageCode: "es" });
 
-			expect(userStore.read().userName).toBe("Alice");
-			expect(settingsStore.read().darkModeEnabled).toBe(true);
-			expect(settingsStore.read().languageCode).toBe("es");
+			// Then - both stores have correct values
+			expect(userStore.read().userName).toEqual("Alice");
+			expect(settingsStore.read().darkModeEnabled).toEqual(true);
+			expect(settingsStore.read().languageCode).toEqual("es");
 
-			// Update one store shouldn't affect the other
+			// When - update one store
 			userStore.update(() => ({ userName: "Bob" }));
 
-			expect(userStore.read().userName).toBe("Bob");
-			expect(settingsStore.read().darkModeEnabled).toBe(true);
+			// Then - other store is unaffected
+			expect(userStore.read().userName).toEqual("Bob");
+			expect(settingsStore.read().darkModeEnabled).toEqual(true);
 		});
 	});
 });

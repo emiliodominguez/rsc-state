@@ -37,6 +37,7 @@ import { userStore } from "@/lib/stores";
 
 export default async function Layout({ children }) {
 	userStore.initialize({ userId: "123", userName: "John" });
+
 	return (
 		<html>
 			<body>{children}</body>
@@ -49,6 +50,7 @@ import { userStore } from "@/lib/stores";
 
 async function Header() {
 	const user = userStore.read();
+
 	return <h1>Welcome, {user.userName}</h1>;
 }
 ```

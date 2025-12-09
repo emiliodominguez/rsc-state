@@ -261,6 +261,50 @@ Coverage targets:
 - Functions: 90%+
 - Lines: 90%+
 
+### Test Style Guide
+
+**Test descriptions**: Use `"should..."` convention for all test descriptions:
+
+```typescript
+// Good
+it("should initialize store with provided state", () => { ... });
+it("should compute derived state correctly", () => { ... });
+
+// Bad
+it("initializes with provided state", () => { ... });
+it("computes derived state", () => { ... });
+```
+
+**Test structure**: Use `// Given // When // Then` comments to organize test logic:
+
+```typescript
+it("should update state immutably", () => {
+	// Given
+	const store = createServerStore({
+		initial: { count: 0 },
+	});
+	store.initialize({ count: 0 });
+
+	// When
+	store.update((previousState) => ({ count: previousState.count + 1 }));
+
+	// Then
+	expect(store.read().count).toEqual(1);
+});
+```
+
+**Assertions**: Prefer `toEqual` over `toBe` for value comparisons (stricter type checking):
+
+```typescript
+// Good - toEqual for values
+expect(state.count).toEqual(5);
+expect(state.isAuthenticated).toEqual(true);
+expect(state.userName).toEqual("John");
+
+// Use toBe only for reference equality or specific primitives when needed
+expect(store).toBe(sameStoreReference);
+```
+
 ### Pre-commit Checks
 
 Automatically runs via husky:

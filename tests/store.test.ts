@@ -1,17 +1,23 @@
 import { describe, it, expect } from "vitest";
+
 import { createServerStore } from "../src";
 
 describe("createServerStore", () => {
-	it("initializes with provided state", () => {
+	it("should initialize store with provided state", () => {
+		// Given
 		const store = createServerStore({
 			initial: { count: 0 },
 		});
 
+		// When
 		store.initialize({ count: 5 });
-		expect(store.read().count).toBe(5);
+
+		// Then
+		expect(store.read().count).toEqual(5);
 	});
 
-	it("computes derived state correctly", () => {
+	it("should compute derived state correctly", () => {
+		// Given
 		const store = createServerStore({
 			initial: { count: 0 },
 			derive: (state) => ({
@@ -20,76 +26,92 @@ describe("createServerStore", () => {
 			}),
 		});
 
+		// When
 		store.initialize({ count: 5 });
 		const state = store.read();
 
-		expect(state.count).toBe(5);
-		expect(state.doubleCount).toBe(10);
-		expect(state.isPositive).toBe(true);
+		// Then
+		expect(state.count).toEqual(5);
+		expect(state.doubleCount).toEqual(10);
+		expect(state.isPositive).toEqual(true);
 	});
 
-	it("updates state immutably", () => {
+	it("should update state immutably", () => {
+		// Given
 		const store = createServerStore({
 			initial: { count: 0 },
 		});
-
 		store.initialize({ count: 0 });
+
+		// When
 		store.update((previousState) => ({ count: previousState.count + 1 }));
 
-		expect(store.read().count).toBe(1);
+		// Then
+		expect(store.read().count).toEqual(1);
 	});
 
-	it("sets entire state", () => {
+	it("should set entire state at once", () => {
+		// Given
 		const store = createServerStore({
 			initial: { count: 0, name: "test" },
 		});
-
 		store.initialize({ count: 5, name: "initial" });
+
+		// When
 		store.set({ count: 10, name: "updated" });
 
+		// Then
 		const state = store.read();
-		expect(state.count).toBe(10);
-		expect(state.name).toBe("updated");
+		expect(state.count).toEqual(10);
+		expect(state.name).toEqual("updated");
 	});
 
-	it("selects specific values", () => {
+	it("should select specific values from state", () => {
+		// Given
 		const store = createServerStore({
 			initial: { user: { name: "John", age: 30 } },
 			derive: (state) => ({
 				displayName: `User: ${state.user.name}`,
 			}),
 		});
-
 		store.initialize({ user: { name: "Jane", age: 25 } });
 
+		// When
 		const userName = store.select((state) => state.user.name);
 		const displayName = store.select((state) => state.displayName);
 
-		expect(userName).toBe("Jane");
-		expect(displayName).toBe("User: Jane");
+		// Then
+		expect(userName).toEqual("Jane");
+		expect(displayName).toEqual("User: Jane");
 	});
 
-	it("resets to initial state", () => {
+	it("should reset to initial state", () => {
+		// Given
 		const store = createServerStore({
 			initial: { count: 0 },
 		});
-
 		store.initialize({ count: 0 });
 		store.update(() => ({ count: 10 }));
-		expect(store.read().count).toBe(10);
 
+		// When
 		store.reset();
-		expect(store.read().count).toBe(0);
+
+		// Then
+		expect(store.read().count).toEqual(0);
 	});
 
-	it("supports factory function for initial state", () => {
+	it("should support factory function for initial state", () => {
+		// Given
 		const store = createServerStore({
 			initial: () => ({ timestamp: Date.now() }),
 		});
 
+		// When
 		store.initialize(store.read());
+
 		const state = store.read();
 
-		expect(typeof state.timestamp).toBe("number");
+		// Then
+		expect(typeof state.timestamp).toEqual("number");
 	});
 });
