@@ -1,21 +1,21 @@
 {
-	"name": "rsc-state-example-basic",
-	"version": "0.0.0",
+	"name": "rsc-state-basic-example",
+	"version": "0.0.1",
 	"private": true,
 	"scripts": {
-		"dev": "next dev",
+		"dev": "next dev --turbopack",
 		"build": "next build",
 		"start": "next start"
 	},
 	"dependencies": {
-		"next": "^14.0.0",
-		"react": "^18.3.0",
-		"react-dom": "^18.3.0",
+		"next": "^15.1.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0",
 		"rsc-state": "file:../.."
 	},
 	"devDependencies": {
-		"@types/node": "^20.10.0",
-		"@types/react": "^18.2.45",
-		"typescript": "^5.3.3"
+		"@types/node": "^22.10.2",
+		"@types/react": "^19.0.1",
+		"typescript": "^5.7.2"
 	}
 }
