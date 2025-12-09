@@ -1,0 +1,92 @@
+{
+	"name": "rsc-state",
+	"version": "0.0.0",
+	"description": "Type-safe state management for React Server Components",
+	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsup",
+		"dev": "tsup --watch",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:coverage": "vitest run --coverage",
+		"lint": "eslint .",
+		"lint:fix": "eslint . --fix",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"type-check": "tsc --noEmit",
+		"prepare": "husky",
+		"changeset": "changeset",
+		"changeset:version": "changeset version",
+		"changeset:publish": "changeset publish",
+		"commit": "cz"
+	},
+	"keywords": [
+		"react",
+		"server-components",
+		"state-management",
+		"nextjs",
+		"rsc",
+		"typescript"
+	],
+	"author": "",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/yourusername/rsc-state.git"
+	},
+	"bugs": {
+		"url": "https://github.com/yourusername/rsc-state/issues"
+	},
+	"homepage": "https://github.com/yourusername/rsc-state#readme",
+	"devDependencies": {
+		"@changesets/cli": "^2.27.1",
+		"@commitlint/cli": "^18.4.3",
+		"@commitlint/config-conventional": "^18.4.3",
+		"@eslint/js": "^9.0.0",
+		"@types/node": "^20.10.0",
+		"@types/react": "^18.2.45",
+		"@vitest/coverage-v8": "^1.0.4",
+		"commitizen": "^4.3.0",
+		"cz-conventional-changelog": "^3.3.0",
+		"eslint": "^9.0.0",
+		"eslint-config-prettier": "^9.1.0",
+		"globals": "^14.0.0",
+		"husky": "^9.0.0",
+		"lint-staged": "^15.2.0",
+		"prettier": "^3.1.1",
+		"tsup": "^8.0.1",
+		"typescript": "^5.3.3",
+		"typescript-eslint": "^8.0.0",
+		"vitest": "^1.0.4"
+	},
+	"peerDependencies": {
+		"react": "^18.3.0 || ^19.0.0"
+	},
+	"config": {
+		"commitizen": {
+			"path": "./node_modules/cz-conventional-changelog"
+		}
+	},
+	"lint-staged": {
+		"*.{ts,tsx}": [
+			"eslint --fix",
+			"prettier --write"
+		],
+		"*.{json,md}": [
+			"prettier --write"
+		]
+	}
+}
