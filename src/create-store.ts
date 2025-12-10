@@ -77,6 +77,8 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	/**
 	 * React cache instance for request-scoped mode.
 	 * Cache is automatically invalidated between requests, ensuring isolation.
+	 *
+	 * @returns Cache instance for current request
 	 */
 	const getRequestScopedInstance = cache((): CacheInstance => {
 		return {
@@ -171,6 +173,16 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 *
 	 * @param initialState - Starting state values
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // In your root layout or page
+	 * async function RootLayout({ children }) {
+	 *   const user = await fetchCurrentUser();
+	 *   userStore.initialize({ userId: user.id, userName: user.name });
+	 *   return <>{children}</>;
+	 * }
+	 * ```
 	 */
 	function initialize(initialState: State): void {
 		const cacheInstance = getCacheInstance();
@@ -191,6 +203,15 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 * Can be called from any Server Component in the tree.
 	 *
 	 * @returns Combined base and derived state
+	 *
+	 * @example
+	 * ```typescript
+	 * // In any Server Component
+	 * function UserProfile() {
+	 *   const { userName, isAuthenticated } = userStore.read();
+	 *   return isAuthenticated ? <p>Welcome, {userName}!</p> : <p>Please log in</p>;
+	 * }
+	 * ```
 	 */
 	function read(): FullState {
 		const cacheInstance = getCacheInstance();
@@ -207,6 +228,15 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 *
 	 * @param updaterFunction - Function that transforms previous state to new state
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // Update a single property
+	 * userStore.update((state) => ({ ...state, userName: "New Name" }));
+	 *
+	 * // Increment a counter
+	 * counterStore.update((state) => ({ ...state, count: state.count + 1 }));
+	 * ```
 	 */
 	function update(updaterFunction: (previousState: State) => State): void {
 		const cacheInstance = getCacheInstance();
@@ -227,6 +257,15 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 *
 	 * @param newState - Complete new state object
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // Replace entire state
+	 * userStore.set({ userId: "123", userName: "John Doe" });
+	 *
+	 * // Clear user data on logout
+	 * userStore.set({ userId: null, userName: "" });
+	 * ```
 	 */
 	function set(newState: State): void {
 		const cacheInstance = getCacheInstance();
@@ -247,6 +286,18 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 *
 	 * @param selectorFunction - Function that extracts desired value from state
 	 * @returns Selected value extracted from state
+	 *
+	 * @example
+	 * ```typescript
+	 * // Select a single property
+	 * const userName = userStore.select((state) => state.userName);
+	 *
+	 * // Select derived state
+	 * const isLoggedIn = userStore.select((state) => state.isAuthenticated);
+	 *
+	 * // Compute a value from state
+	 * const displayName = userStore.select((state) => state.userName || "Anonymous");
+	 * ```
 	 */
 	function select<R>(selectorFunction: (state: FullState) => R): R {
 		return selectorFunction(read());
@@ -256,6 +307,18 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 * Resets state back to initial values defined in configuration.
 	 *
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // Reset store to initial state
+	 * userStore.reset();
+	 *
+	 * // Useful for logout flows
+	 * async function handleLogout() {
+	 *   await signOut();
+	 *   userStore.reset();
+	 * }
+	 * ```
 	 */
 	function reset(): void {
 		const cacheInstance = getCacheInstance();
@@ -276,6 +339,22 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 *
 	 * @param callback - Function that receives a batch API with update and set methods
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // Multiple updates in a single batch
+	 * userStore.batch((api) => {
+	 *   api.update((state) => ({ ...state, userName: "John" }));
+	 *   api.update((state) => ({ ...state, email: "john@example.com" }));
+	 *   api.update((state) => ({ ...state, lastLogin: new Date() }));
+	 * });
+	 *
+	 * // Mix update and set within a batch
+	 * cartStore.batch((api) => {
+	 *   api.update((state) => ({ ...state, itemCount: state.itemCount + 1 }));
+	 *   api.set({ items: [], itemCount: 0, total: 0 }); // Clear cart
+	 * });
+	 * ```
 	 */
 	function batch(callback: (api: BatchApi<State>) => void): void {
 		const cacheInstance = getCacheInstance();

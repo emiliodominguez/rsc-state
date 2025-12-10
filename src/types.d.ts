@@ -133,6 +133,14 @@ export interface StoreConfig<T extends Record<string, unknown>> {
 /**
  * API object provided to the batch callback function.
  * Contains methods for updating state without triggering derived state computation.
+ *
+ * @example
+ * ```typescript
+ * userStore.batch((api) => {
+ *   api.update((state) => ({ ...state, userName: "John" }));
+ *   api.set({ userId: "123", userName: "John", email: "john@example.com" });
+ * });
+ * ```
  */
 export interface BatchApi<T> {
 	/**
@@ -140,6 +148,14 @@ export interface BatchApi<T> {
 	 * Derived state is not computed until the batch completes.
 	 *
 	 * @param updaterFunction - Function that transforms previous state to new state
+	 *
+	 * @example
+	 * ```typescript
+	 * userStore.batch((api) => {
+	 *   api.update((state) => ({ ...state, userName: "John" }));
+	 *   api.update((state) => ({ ...state, email: "john@example.com" }));
+	 * });
+	 * ```
 	 */
 	update(updaterFunction: (previousState: T) => T): void;
 
@@ -148,6 +164,14 @@ export interface BatchApi<T> {
 	 * Derived state is not computed until the batch completes.
 	 *
 	 * @param newState - Complete new state object
+	 *
+	 * @example
+	 * ```typescript
+	 * userStore.batch((api) => {
+	 *   api.update((state) => ({ ...state, itemCount: state.itemCount + 1 }));
+	 *   api.set({ items: [], itemCount: 0, total: 0 }); // Clear cart
+	 * });
+	 * ```
 	 */
 	set(newState: T): void;
 }
@@ -163,6 +187,16 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 *
 	 * @param initialState - Starting state values for this request
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // In your root layout or page
+	 * async function RootLayout({ children }) {
+	 *   const user = await fetchCurrentUser();
+	 *   userStore.initialize({ userId: user.id, userName: user.name });
+	 *   return <>{children}</>;
+	 * }
+	 * ```
 	 */
 	initialize(initialState: T): void;
 
@@ -171,6 +205,15 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 * Can be called from any Server Component in the tree.
 	 *
 	 * @returns Combined base and derived state
+	 *
+	 * @example
+	 * ```typescript
+	 * // In any Server Component
+	 * function UserProfile() {
+	 *   const { userName, isAuthenticated } = userStore.read();
+	 *   return isAuthenticated ? <p>Welcome, {userName}!</p> : <p>Please log in</p>;
+	 * }
+	 * ```
 	 */
 	read(): T & D;
 
@@ -180,6 +223,15 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 *
 	 * @param updaterFunction - Function that transforms previous state to new state
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // Update a single property
+	 * userStore.update((state) => ({ ...state, userName: "New Name" }));
+	 *
+	 * // Increment a counter
+	 * counterStore.update((state) => ({ ...state, count: state.count + 1 }));
+	 * ```
 	 */
 	update(updaterFunction: (previousState: T) => T): void;
 
@@ -189,6 +241,15 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 *
 	 * @param newState - Complete new state object
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // Replace entire state
+	 * userStore.set({ userId: "123", userName: "John Doe" });
+	 *
+	 * // Clear user data on logout
+	 * userStore.set({ userId: null, userName: "" });
+	 * ```
 	 */
 	set(newState: T): void;
 
@@ -198,6 +259,18 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 *
 	 * @param selectorFunction - Function that extracts desired value from state
 	 * @returns Selected value from state
+	 *
+	 * @example
+	 * ```typescript
+	 * // Select a single property
+	 * const userName = userStore.select((state) => state.userName);
+	 *
+	 * // Select derived state
+	 * const isLoggedIn = userStore.select((state) => state.isAuthenticated);
+	 *
+	 * // Compute a value from state
+	 * const displayName = userStore.select((state) => state.userName || "Anonymous");
+	 * ```
 	 */
 	select<R>(selectorFunction: (state: T & D) => R): R;
 
@@ -206,6 +279,18 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 * If initial was a factory function, it will be called again.
 	 *
 	 * @returns void
+	 *
+	 * @example
+	 * ```typescript
+	 * // Reset store to initial state
+	 * userStore.reset();
+	 *
+	 * // Useful for logout flows
+	 * async function handleLogout() {
+	 *   await signOut();
+	 *   userStore.reset();
+	 * }
+	 * ```
 	 */
 	reset(): void;
 
@@ -218,10 +303,18 @@ export interface ServerStore<T extends Record<string, unknown>, D extends Record
 	 *
 	 * @example
 	 * ```typescript
-	 * store.batch((api) => {
-	 *   api.update((state) => ({ ...state, count: state.count + 1 }));
-	 *   api.update((state) => ({ ...state, name: 'updated' }));
-	 * }); // Derived state computed once after both updates
+	 * // Multiple updates in a single batch
+	 * userStore.batch((api) => {
+	 *   api.update((state) => ({ ...state, userName: "John" }));
+	 *   api.update((state) => ({ ...state, email: "john@example.com" }));
+	 *   api.update((state) => ({ ...state, lastLogin: new Date() }));
+	 * });
+	 *
+	 * // Mix update and set within a batch
+	 * cartStore.batch((api) => {
+	 *   api.update((state) => ({ ...state, itemCount: state.itemCount + 1 }));
+	 *   api.set({ items: [], itemCount: 0, total: 0 }); // Clear cart
+	 * });
 	 * ```
 	 */
 	batch(callback: (api: BatchApi<T>) => void): void;
