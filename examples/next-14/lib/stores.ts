@@ -110,14 +110,14 @@ export const userStore = createServerStore({
  *
  * Note: Next.js 14 uses synchronous cookies() API.
  */
-export const getUser = cache(() => {
+export const getUser = cache(async () => {
 	const userCookie = cookies().get(USER_COOKIE);
 
 	if (userCookie) {
 		try {
 			const userData = JSON.parse(userCookie.value);
 
-			userStore.initialize(userData);
+			await userStore.initialize(userData);
 		} catch {
 			// Invalid cookie
 		}

@@ -4,10 +4,12 @@ This folder contains example applications demonstrating `rsc-state` with differe
 
 ## Available Examples
 
-| Example               | Next.js Version | Cookies API | Description                             |
-| --------------------- | --------------- | ----------- | --------------------------------------- |
-| [next-14](./next-14/) | 14.x            | Synchronous | Uses sync `cookies()` API               |
-| [next-15](./next-15/) | 15.x            | Async       | Uses async `cookies()` API with `await` |
+| Example                                 | Next.js Version | Description                                          |
+| --------------------------------------- | --------------- | ---------------------------------------------------- |
+| [next-14](./next-14/)                   | 14.x            | Basic usage with sync `cookies()` API                |
+| [next-15](./next-15/)                   | 15.x            | Basic usage with async `cookies()` API               |
+| [next-16](./next-16/)                   | 16.x            | Basic usage with latest Next.js                      |
+| [next-16-adapters](./next-16-adapters/) | 16.x            | Storage adapters for persistent state (file, memory) |
 
 ## Running an Example
 
@@ -90,7 +92,7 @@ export const getUser = cache(async () => {
 	const userCookie = cookieStore.get(USER_COOKIE);
 
 	if (userCookie) {
-		userStore.initialize(JSON.parse(userCookie.value));
+		await userStore.initialize(JSON.parse(userCookie.value));
 	}
 
 	return userStore.read();
@@ -123,6 +125,43 @@ The About page demonstrates that state persists correctly across navigation:
 - **Feature flags**: Same value on every page, for every user
 - **User data**: Loaded from cookie on each request, isolated per user
 - **Theme**: Part of user data, persists across navigation via cookie
+
+### Storage Adapters (next-16-adapters)
+
+The adapters example demonstrates custom storage backends for persistent mode:
+
+```typescript
+// JSON file adapter
+const jsonFileAdapter: StorageAdapter<SettingsState> = {
+	read: async () => {
+		const data = await readDataFile();
+		return data;
+	},
+	write: async (state) => {
+		await writeDataFile(state);
+	},
+};
+
+// Create store with adapter
+export const settingsStore = createServerStore({
+	storage: "persistent",
+	initial: { theme: "light", language: "en" },
+	adapter: jsonFileAdapter,
+	middleware: [
+		(operation) => {
+			console.log(`[${operation.type}]:`, operation.nextState);
+			return operation.nextState;
+		},
+	],
+});
+```
+
+This example also demonstrates:
+
+- **Middleware**: Intercept and log state operations
+- **Derived state**: Compute values from base state
+- **Server actions with async store methods**: All mutating methods return promises
+- **Minimal client components**: Only interactive inputs are client-side
 
 ## Project Structure
 

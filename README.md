@@ -419,14 +419,15 @@ await store.batch((api) => {
 
 Working examples are available for different Next.js versions:
 
-| Version    | Directory                                | Notes                                    |
-| ---------- | ---------------------------------------- | ---------------------------------------- |
-| Next.js 14 | [`examples/next-14`](./examples/next-14) | Synchronous `cookies()` API              |
-| Next.js 15 | [`examples/next-15`](./examples/next-15) | Async `cookies()` API, Turbopack         |
-| Next.js 16 | [`examples/next-16`](./examples/next-16) | Async `cookies()` API, Turbopack default |
+| Version               | Directory                                                  | Notes                                    |
+| --------------------- | ---------------------------------------------------------- | ---------------------------------------- |
+| Next.js 14            | [`examples/next-14`](./examples/next-14)                   | Synchronous `cookies()` API              |
+| Next.js 15            | [`examples/next-15`](./examples/next-15)                   | Async `cookies()` API, Turbopack         |
+| Next.js 16            | [`examples/next-16`](./examples/next-16)                   | Async `cookies()` API, Turbopack default |
+| Next.js 16 + Adapters | [`examples/next-16-adapters`](./examples/next-16-adapters) | Storage adapters with file persistence   |
 
 ```bash
-cd examples/next-15  # or next-14, next-16
+cd examples/next-15  # or next-14, next-16, next-16-adapters
 npm install
 npm run dev
 ```
@@ -438,6 +439,13 @@ Each example demonstrates:
 - Persistent theme store without cookies
 - Reading state without prop drilling
 - Server Actions with revalidation
+
+The **adapters example** additionally shows:
+
+- Custom file-based storage adapter (JSON persistence)
+- In-memory adapter for comparison
+- State that survives server restarts
+- Middleware for logging operations
 
 ### Framework Support
 

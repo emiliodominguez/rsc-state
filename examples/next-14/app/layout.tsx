@@ -8,8 +8,8 @@ export const metadata = {
 	description: "Demonstrating rsc-state with both storage modes",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }): React.ReactNode {
-	const user = getUser();
+export default async function RootLayout({ children }: { children: React.ReactNode }): Promise<React.ReactNode> {
+	const user = await getUser();
 
 	return (
 		<html lang="en">

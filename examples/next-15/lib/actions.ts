@@ -83,10 +83,11 @@ export async function toggleTheme(): Promise<void> {
  * This triggers the onUpdate lifecycle hook.
  */
 export async function toggleBetaFeatures(): Promise<void> {
-	featureFlagsStore.update((state) => ({
+	await featureFlagsStore.update((state) => ({
 		...state,
 		betaFeatures: !state.betaFeatures,
 	}));
+
 	revalidatePath("/", "layout");
 }
 
@@ -95,10 +96,11 @@ export async function toggleBetaFeatures(): Promise<void> {
  * This triggers the onUpdate lifecycle hook.
  */
 export async function toggleMaintenanceMode(): Promise<void> {
-	featureFlagsStore.update((state) => ({
+	await featureFlagsStore.update((state) => ({
 		...state,
 		maintenanceMode: !state.maintenanceMode,
 	}));
+
 	revalidatePath("/", "layout");
 }
 
@@ -109,10 +111,11 @@ export async function toggleMaintenanceMode(): Promise<void> {
  * This triggers onUpdate once (not twice) with the final state.
  */
 export async function enableAllFlags(): Promise<void> {
-	featureFlagsStore.batch((api) => {
+	await featureFlagsStore.batch((api) => {
 		api.update((state) => ({ ...state, betaFeatures: true }));
 		api.update((state) => ({ ...state, maintenanceMode: true }));
 	});
+
 	revalidatePath("/", "layout");
 }
 
@@ -121,7 +124,8 @@ export async function enableAllFlags(): Promise<void> {
  * This triggers the onReset lifecycle hook.
  */
 export async function resetFeatureFlags(): Promise<void> {
-	featureFlagsStore.reset();
+	await featureFlagsStore.reset();
+
 	revalidatePath("/", "layout");
 }
 
@@ -131,9 +135,10 @@ export async function resetFeatureFlags(): Promise<void> {
  * The store continues to work, returning base state without derived properties.
  */
 export async function toggleErrorSimulation(): Promise<void> {
-	errorDemoStore.update((state) => ({
+	await errorDemoStore.update((state) => ({
 		...state,
 		simulateError: !state.simulateError,
 	}));
+
 	revalidatePath("/", "layout");
 }

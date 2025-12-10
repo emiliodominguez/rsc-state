@@ -116,7 +116,7 @@ export const getUser = cache(async () => {
 		try {
 			const userData = JSON.parse(userCookie.value);
 
-			userStore.initialize(userData);
+			await userStore.initialize(userData);
 		} catch {
 			// Invalid cookie
 		}
