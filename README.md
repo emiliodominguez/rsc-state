@@ -9,14 +9,68 @@ Type-safe state management for React Server Components.
 - **Zero client JS**: Purely server-side using React's [`cache`](https://react.dev/reference/react/cache) API
 - **No hooks needed**: Direct read/write API for Server Components
 - **Derived state**: Compute values automatically from base state (memoized for performance)
-- **Lifecycle hooks**: `onInitialize`, `onUpdate`, `onReset` callbacks for logging and side effects
-- **Error boundaries**: Graceful error handling in derive functions with `onError` callback
+- **Middleware**: Intercept and transform state operations with async support
+- **Storage adapters**: Pluggable backends for persistent mode (Redis, database, etc.)
+- **Async callbacks**: `onInitialize`, `onUpdate`, `onReset` support async operations
 - **Batch updates**: Combine multiple updates for better performance
 
 ## Installation
 
 ```bash
 npm install rsc-state
+```
+
+## Migration from v1.x to v2.x
+
+Version 2.0 introduces an async-first architecture. All state-mutating methods now return promises.
+
+### Breaking Changes
+
+| Method         | v1.x   | v2.0             |
+| -------------- | ------ | ---------------- |
+| `initialize()` | `void` | `Promise<void>`  |
+| `update()`     | `void` | `Promise<void>`  |
+| `set()`        | `void` | `Promise<void>`  |
+| `patch()`      | N/A    | `Promise<void>`  |
+| `reset()`      | `void` | `Promise<void>`  |
+| `batch()`      | `void` | `Promise<void>`  |
+| `read()`       | sync   | sync (unchanged) |
+| `select()`     | sync   | sync (unchanged) |
+
+### Migration Steps
+
+1. Add `await` before all state-mutating calls:
+
+```typescript
+// Before (v1.x)
+userStore.initialize({ userId: "123", userName: "John" });
+userStore.update((state) => ({ ...state, count: state.count + 1 }));
+userStore.set({ userId: null, userName: "" });
+userStore.reset();
+
+// After (v2.0)
+await userStore.initialize({ userId: "123", userName: "John" });
+await userStore.update((state) => ({ ...state, count: state.count + 1 }));
+await userStore.set({ userId: null, userName: "" });
+await userStore.reset();
+```
+
+2. Ensure your Server Components and layouts are async:
+
+```typescript
+// Before (v1.x)
+export default function RootLayout({ children }) {
+  userStore.initialize({ userId: "123" });
+
+  return <html><body>{children}</body></html>;
+}
+
+// After (v2.0)
+export default async function RootLayout({ children }) {
+  await userStore.initialize({ userId: "123" });
+
+  return <html><body>{children}</body></html>;
+}
 ```
 
 ## Storage Modes
@@ -84,7 +138,7 @@ export default async function Layout({ children }) {
 	const userId = cookieStore.get("userId")?.value ?? null;
 	const userName = cookieStore.get("userName")?.value ?? "";
 
-	userStore.initialize({ userId, userName });
+	await userStore.initialize({ userId, userName });
 
 	return <html><body>{children}</body></html>;
 }
@@ -150,7 +204,7 @@ import { settingsStore } from "./stores";
 export async function toggleTheme() {
 	const current = settingsStore.read().theme;
 
-	settingsStore.set({ theme: current === "light" ? "dark" : "light" });
+	await settingsStore.set({ theme: current === "light" ? "dark" : "light" });
 
 	revalidatePath("/");
 }
@@ -164,30 +218,108 @@ Creates a new server store.
 
 **Parameters:**
 
-| Option         | Type                                               | Description                                           |
-| -------------- | -------------------------------------------------- | ----------------------------------------------------- |
-| `initial`      | `T \| () => T`                                     | Initial state value or factory function               |
-| `storage`      | `"request" \| "persistent"`                        | Storage mode (default: `"request"`)                   |
-| `derive`       | `(state: T) => D`                                  | Optional function to compute derived state (memoized) |
-| `debug`        | `boolean`                                          | Enable debug logging                                  |
-| `onInitialize` | `(state: T) => void`                               | Callback after store initialization                   |
-| `onUpdate`     | `(previousState: T, nextState: T) => void`         | Callback after state updates                          |
-| `onReset`      | `() => void`                                       | Callback after store reset                            |
-| `onError`      | `(error: Error, context: ErrorContext<T>) => void` | Callback when derive function throws                  |
+| Option         | Type                                                                | Description                                           |
+| -------------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
+| `initial`      | `T \| () => T`                                                      | Initial state value or factory function               |
+| `storage`      | `"request" \| "persistent"`                                         | Storage mode (default: `"request"`)                   |
+| `derive`       | `(state: T) => D`                                                   | Optional function to compute derived state (memoized) |
+| `middleware`   | `Middleware<T>[]`                                                   | Array of middleware functions to intercept operations |
+| `adapter`      | `StorageAdapter<T>`                                                 | Storage adapter for persistent mode                   |
+| `debug`        | `boolean`                                                           | Enable debug logging                                  |
+| `onInitialize` | `(state: T) => void \| Promise<void>`                               | Callback after store initialization                   |
+| `onUpdate`     | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after state updates                          |
+| `onReset`      | `() => void \| Promise<void>`                                       | Callback after store reset                            |
+| `onError`      | `(error: Error, context: ErrorContext<T>) => void \| Promise<void>` | Callback when derive function throws                  |
 
 **Returns:** `ServerStore<T, D>` instance
 
 ### Store Methods
 
-| Method              | Description                                                       |
-| ------------------- | ----------------------------------------------------------------- |
-| `initialize(state)` | Initialize store with values (for request-scoped, call in layout) |
-| `read()`            | Read current state including derived properties                   |
-| `update(fn)`        | Update state via reducer: `(prev) => next`                        |
-| `set(state)`        | Replace entire state                                              |
-| `select(fn)`        | Select specific value: `(state) => value`                         |
-| `reset()`           | Reset to initial state                                            |
-| `batch(fn)`         | Execute multiple updates, compute derived state once              |
+| Method              | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `initialize(state)` | Initialize store with values (async, for request-scoped)     |
+| `read()`            | Read current state including derived properties (sync)       |
+| `update(fn)`        | Update state via reducer: `(prev) => next` (async)           |
+| `set(state)`        | Replace entire state (async)                                 |
+| `patch(partial)`    | Partially update state by merging (async)                    |
+| `select(fn)`        | Select specific value: `(state) => value` (sync)             |
+| `reset()`           | Reset to initial state (async)                               |
+| `batch(fn)`         | Execute multiple updates, compute derived state once (async) |
+
+### Middleware
+
+Intercept and transform state operations:
+
+```typescript
+import type { Middleware } from "rsc-state";
+
+const loggingMiddleware: Middleware<MyState> = (operation) => {
+	console.log(`[${operation.type}]`, operation.previousState, "→", operation.nextState);
+	return operation.nextState;
+};
+
+const validationMiddleware: Middleware<MyState> = async (operation) => {
+	await validateState(operation.nextState);
+	return operation.nextState;
+};
+
+const store = createServerStore({
+	initial: { count: 0 },
+	middleware: [loggingMiddleware, validationMiddleware],
+});
+```
+
+Middleware receives:
+
+- `operation.type`: `"initialize" | "update" | "set" | "patch" | "reset" | "batch"`
+- `operation.previousState`: State before the operation
+- `operation.nextState`: State after the operation (can be transformed)
+
+Middleware can:
+
+- Log state changes
+- Validate state
+- Transform state before it's applied
+- Perform async operations
+
+### Storage Adapters
+
+Use custom storage backends for persistent mode:
+
+```typescript
+import type { StorageAdapter } from "rsc-state";
+
+const redisAdapter: StorageAdapter<MyState> = {
+	read: async () => {
+		const data = await redis.get("store:key");
+		return data ? JSON.parse(data) : null;
+	},
+	write: async (state) => {
+		await redis.set("store:key", JSON.stringify(state));
+	},
+};
+
+const store = createServerStore({
+	storage: "persistent",
+	initial: { theme: "light" },
+	adapter: redisAdapter,
+});
+```
+
+### Patch Method
+
+Partially update state without spread syntax:
+
+```typescript
+// Instead of:
+await store.update((state) => ({ ...state, userName: "John" }));
+
+// Use:
+await store.patch({ userName: "John" });
+
+// Update multiple properties:
+await store.patch({ userName: "John", email: "john@example.com" });
+```
 
 ### Derived State Memoization
 
@@ -205,25 +337,28 @@ const store = createServerStore({
 
 store.read(); // Computes derived state
 store.read(); // Returns cached result (no recomputation)
-store.update((s) => ({ items: [...s.items, 5] }));
+await store.update((s) => ({ items: [...s.items, 5] }));
 store.read(); // Recomputes derived state
 ```
 
 ### Lifecycle Hooks
 
-React to state changes with lifecycle callbacks:
+React to state changes with lifecycle callbacks (supports async):
 
 ```typescript
 const store = createServerStore({
 	initial: { count: 0 },
-	onInitialize: (state) => {
+	onInitialize: async (state) => {
 		console.log("Store initialized with:", state);
+		await analytics.track("store_initialized", state);
 	},
-	onUpdate: (previousState, nextState) => {
+	onUpdate: async (previousState, nextState) => {
 		console.log("State changed from", previousState, "to", nextState);
+		await syncToDatabase(nextState);
 	},
-	onReset: () => {
+	onReset: async () => {
 		console.log("Store was reset");
+		await clearCache();
 	},
 });
 ```
@@ -239,10 +374,9 @@ const store = createServerStore({
 		// This might throw if data is null
 		processedData: processData(state.data!),
 	}),
-	onError: (error, context) => {
+	onError: async (error, context) => {
 		console.error(`Error in ${context.method}:`, error.message);
-		// Report to error tracking service
-		reportError(error);
+		await reportError(error);
 	},
 });
 
@@ -263,15 +397,21 @@ const store = createServerStore({
 });
 
 // Without batch: derived state recalculated 3 times
-store.update((s) => ({ ...s, count: s.count + 1 }));
-store.update((s) => ({ ...s, count: s.count + 1 }));
-store.set({ count: 100, name: "Final" });
+await store.update((s) => ({ ...s, count: s.count + 1 }));
+await store.update((s) => ({ ...s, count: s.count + 1 }));
+await store.set({ count: 100, name: "Final" });
 
 // With batch: derived state recalculated only once
-store.batch((api) => {
+await store.batch((api) => {
 	api.update((s) => ({ ...s, count: s.count + 1 }));
 	api.update((s) => ({ ...s, count: s.count + 1 }));
 	api.set({ count: 100, name: "Final" });
+});
+
+// Batch also supports patch:
+await store.batch((api) => {
+	api.patch({ count: 10 });
+	api.patch({ name: "Updated" });
 });
 ```
 
@@ -325,6 +465,33 @@ Uses module-level variables:
 - State persists in Node.js process memory
 - Shared across all requests and users
 - Lost on server restart or deployment
+- Can use storage adapters for external persistence (Redis, database, etc.)
+
+## TypeScript
+
+Full type inference for state and derived values:
+
+```typescript
+const store = createServerStore({
+	initial: {
+		userId: null as string | null,
+		userName: "",
+	},
+	derive: (state) => ({
+		isAuthenticated: state.userId !== null,
+	}),
+});
+
+// Type: { userId: string | null; userName: string; isAuthenticated: boolean }
+const state = store.read();
+
+// Type error: Property 'invalidProperty' does not exist
+state.invalidProperty;
+
+// patch() is type-safe
+await store.patch({ userName: "John" }); // ✅
+await store.patch({ invalidKey: "value" }); // ❌ Type error
+```
 
 ## Contributing
 

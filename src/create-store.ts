@@ -1,6 +1,6 @@
 import { cache } from "react";
 
-import type { BatchApi, ServerStore, StorageMode, StoreConfig } from "./types";
+import type { BatchApi, OperationType, ServerStore, StorageMode, StoreConfig } from "./types";
 
 /**
  * Creates a server store for managing state in React Server Components.
@@ -11,10 +11,11 @@ import type { BatchApi, ServerStore, StorageMode, StoreConfig } from "./types";
  * - `"persistent"`: State persists across requests using module-level storage.
  *   Shared across ALL users. Only use for global app state.
  *
- * State can be read from any Server Component in the tree without prop drilling.
+ * All state-mutating methods are async to support middleware, storage adapters,
+ * and async lifecycle callbacks.
  *
- * @param configuration - Store configuration with initial state and optional derived state
- * @returns Store instance with methods to initialize, read, and update state
+ * @param configuration - Store configuration with initial state, middleware, adapter, and callbacks
+ * @returns Store instance with async methods to initialize, read, and update state
  *
  * @example
  * Request-scoped store (safe for user data)
@@ -23,16 +24,29 @@ import type { BatchApi, ServerStore, StorageMode, StoreConfig } from "./types";
  *   initial: { userId: null, userName: '' },
  *   derive: (state) => ({
  *     isAuthenticated: state.userId !== null
- *   })
+ *   }),
+ *   middleware: [
+ *     (operation) => {
+ *       console.log(`[${operation.type}]`, operation.nextState);
+ *       return operation.nextState;
+ *     }
+ *   ]
  * });
+ *
+ * // In layout
+ * await userStore.initialize({ userId: "123", userName: "John" });
  * ```
  *
  * @example
- * Persistent store (global app state only)
+ * Persistent store with storage adapter
  * ```typescript
  * const settingsStore = createServerStore({
  *   storage: "persistent",
  *   initial: { theme: "light" },
+ *   adapter: {
+ *     read: async () => await redis.get("settings"),
+ *     write: async (state) => await redis.set("settings", state),
+ *   },
  *   derive: (state) => ({
  *     isDarkMode: state.theme === "dark"
  *   })
@@ -66,12 +80,18 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	let persistentInstance: CacheInstance | null = null;
 
 	/**
+	 * Tracks whether the persistent instance has been initialized from the adapter.
+	 * Prevents multiple adapter reads on concurrent access.
+	 */
+	let persistentInstanceInitializing: Promise<CacheInstance> | null = null;
+
+	/**
 	 * Gets the initial state from configuration.
 	 *
 	 * @returns Initial state value
 	 */
 	function getInitialState(): State {
-		return typeof configuration.initial === "function" ? (configuration.initial as () => T)() : configuration.initial;
+		return typeof configuration.initial === "function" ? configuration.initial() : configuration.initial;
 	}
 
 	/**
@@ -91,10 +111,49 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 	/**
 	 * Gets the persistent instance, creating it if needed.
+	 * Reads initial state from adapter if configured.
+	 *
+	 * @returns Promise resolving to persistent cache instance
+	 */
+	async function getPersistentInstance(): Promise<CacheInstance> {
+		if (persistentInstance) {
+			return persistentInstance;
+		}
+
+		// If already initializing, wait for that to complete
+		if (persistentInstanceInitializing) {
+			return persistentInstanceInitializing;
+		}
+
+		// Start initialization
+		persistentInstanceInitializing = (async (): Promise<CacheInstance> => {
+			let adapterState: State | null = null;
+
+			if (configuration.adapter) {
+				adapterState = await configuration.adapter.read();
+			}
+
+			persistentInstance = {
+				state: adapterState ?? getInitialState(),
+				initialized: adapterState !== null,
+				lastDerivedBaseState: null,
+				cachedDerivedState: null,
+			};
+
+			return persistentInstance;
+		})();
+
+		return persistentInstanceInitializing;
+	}
+
+	/**
+	 * Gets the persistent instance synchronously.
+	 * Used by read() and select() which must remain synchronous.
+	 * Falls back to initial state if adapter hasn't been read yet.
 	 *
 	 * @returns Persistent cache instance
 	 */
-	function getPersistentInstance(): CacheInstance {
+	function getPersistentInstanceSync(): CacheInstance {
 		persistentInstance ??= {
 			state: getInitialState(),
 			initialized: false,
@@ -107,11 +166,61 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 	/**
 	 * Gets the appropriate cache instance based on storage mode.
+	 * For async operations that need adapter support.
+	 *
+	 * @returns Promise resolving to cache instance for current storage mode
+	 */
+	async function getCacheInstanceAsync(): Promise<CacheInstance> {
+		return storageMode === "persistent" ? getPersistentInstance() : getRequestScopedInstance();
+	}
+
+	/**
+	 * Gets the appropriate cache instance synchronously.
+	 * Used by read() and select() which must remain synchronous.
 	 *
 	 * @returns Cache instance for current storage mode
 	 */
-	function getCacheInstance(): CacheInstance {
-		return storageMode === "persistent" ? getPersistentInstance() : getRequestScopedInstance();
+	function getCacheInstanceSync(): CacheInstance {
+		return storageMode === "persistent" ? getPersistentInstanceSync() : getRequestScopedInstance();
+	}
+
+	/**
+	 * Writes state to the storage adapter if configured and in persistent mode.
+	 *
+	 * @param state - State to persist
+	 * @returns Promise that resolves when write is complete
+	 */
+	async function writeToAdapter(state: State): Promise<void> {
+		if (storageMode === "persistent" && configuration.adapter) {
+			await configuration.adapter.write(state);
+		}
+	}
+
+	/**
+	 * Applies middleware chain to a state operation.
+	 * Each middleware can transform the state before it's applied.
+	 *
+	 * @param operationType - Type of operation being performed
+	 * @param previousState - State before the operation
+	 * @param nextState - State after the operation (before middleware)
+	 * @returns Promise resolving to final state after middleware transformations
+	 */
+	async function applyMiddleware(operationType: OperationType, previousState: State, nextState: State): Promise<State> {
+		if (!configuration.middleware?.length) {
+			return nextState;
+		}
+
+		let finalState = nextState;
+
+		for (const middlewareFunction of configuration.middleware) {
+			finalState = await middlewareFunction({
+				type: operationType,
+				previousState,
+				nextState: finalState,
+			});
+		}
+
+		return finalState;
 	}
 
 	/**
@@ -144,7 +253,8 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		} catch (thrownError: unknown) {
 			const errorInstance = thrownError instanceof Error ? thrownError : new Error(String(thrownError));
 
-			configuration.onError?.(errorInstance, { method: "derive", state: baseState });
+			// Fire-and-forget for async onError - we can't await in this sync function
+			void configuration.onError?.(errorInstance, { method: "derive", state: baseState });
 
 			if (configuration.debug) {
 				console.warn(`[rsc-state:${storageMode}] Error in derive function:`, errorInstance.message);
@@ -170,37 +280,44 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 * Initializes the store with starting values.
 	 * For request-scoped: called once per request in root layout.
 	 * For persistent: called once on first access or to reset values.
+	 * Runs middleware and triggers onInitialize callback.
 	 *
 	 * @param initialState - Starting state values
-	 * @returns void
+	 * @returns Promise that resolves when initialization is complete
 	 *
 	 * @example
 	 * ```typescript
 	 * // In your root layout or page
 	 * async function RootLayout({ children }) {
 	 *   const user = await fetchCurrentUser();
-	 *   userStore.initialize({ userId: user.id, userName: user.name });
+	 *   await userStore.initialize({ userId: user.id, userName: user.name });
 	 *   return <>{children}</>;
 	 * }
 	 * ```
 	 */
-	function initialize(initialState: State): void {
-		const cacheInstance = getCacheInstance();
+	async function initialize(initialState: State): Promise<void> {
+		const cacheInstance = await getCacheInstanceAsync();
+		const previousState = cacheInstance.state;
 
-		cacheInstance.state = initialState;
+		const finalState = await applyMiddleware("initialize", previousState, initialState);
+
+		cacheInstance.state = finalState;
 		cacheInstance.initialized = true;
 		invalidateDerivedCache(cacheInstance);
 
+		await writeToAdapter(finalState);
+
 		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Initialized:`, initialState);
+			console.log(`[rsc-state:${storageMode}] Initialized:`, finalState);
 		}
 
-		configuration.onInitialize?.(initialState);
+		await configuration.onInitialize?.(finalState);
 	}
 
 	/**
 	 * Reads current state including derived properties.
 	 * Can be called from any Server Component in the tree.
+	 * This is a synchronous operation that returns cached state.
 	 *
 	 * @returns Combined base and derived state
 	 *
@@ -214,7 +331,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	 * ```
 	 */
 	function read(): FullState {
-		const cacheInstance = getCacheInstance();
+		const cacheInstance = getCacheInstanceSync();
 
 		if (!cacheInstance.initialized && configuration.debug) {
 			console.warn(`[rsc-state:${storageMode}] Reading uninitialized store`);
@@ -225,64 +342,111 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 	/**
 	 * Updates state by applying a reducer function to previous state.
+	 * Runs middleware and triggers onUpdate callback.
 	 *
 	 * @param updaterFunction - Function that transforms previous state to new state
-	 * @returns void
+	 * @returns Promise that resolves when update is complete
 	 *
 	 * @example
 	 * ```typescript
 	 * // Update a single property
-	 * userStore.update((state) => ({ ...state, userName: "New Name" }));
+	 * await userStore.update((state) => ({ ...state, userName: "New Name" }));
 	 *
 	 * // Increment a counter
-	 * counterStore.update((state) => ({ ...state, count: state.count + 1 }));
+	 * await counterStore.update((state) => ({ ...state, count: state.count + 1 }));
 	 * ```
 	 */
-	function update(updaterFunction: (previousState: State) => State): void {
-		const cacheInstance = getCacheInstance();
+	async function update(updaterFunction: (previousState: State) => State): Promise<void> {
+		const cacheInstance = await getCacheInstanceAsync();
 		const previousState = cacheInstance.state;
+		const updatedState = updaterFunction(previousState);
 
-		cacheInstance.state = updaterFunction(previousState);
+		const finalState = await applyMiddleware("update", previousState, updatedState);
+
+		cacheInstance.state = finalState;
 		invalidateDerivedCache(cacheInstance);
 
+		await writeToAdapter(finalState);
+
 		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Updated:`, cacheInstance.state);
+			console.log(`[rsc-state:${storageMode}] Updated:`, finalState);
 		}
 
-		configuration.onUpdate?.(previousState, cacheInstance.state);
+		await configuration.onUpdate?.(previousState, finalState);
 	}
 
 	/**
 	 * Replaces entire state with a new state object.
+	 * Runs middleware and triggers onUpdate callback.
 	 *
 	 * @param newState - Complete new state object
-	 * @returns void
+	 * @returns Promise that resolves when set is complete
 	 *
 	 * @example
 	 * ```typescript
 	 * // Replace entire state
-	 * userStore.set({ userId: "123", userName: "John Doe" });
+	 * await userStore.set({ userId: "123", userName: "John Doe" });
 	 *
 	 * // Clear user data on logout
-	 * userStore.set({ userId: null, userName: "" });
+	 * await userStore.set({ userId: null, userName: "" });
 	 * ```
 	 */
-	function set(newState: State): void {
-		const cacheInstance = getCacheInstance();
+	async function set(newState: State): Promise<void> {
+		const cacheInstance = await getCacheInstanceAsync();
 		const previousState = cacheInstance.state;
 
-		cacheInstance.state = newState;
+		const finalState = await applyMiddleware("set", previousState, newState);
+
+		cacheInstance.state = finalState;
 		invalidateDerivedCache(cacheInstance);
 
+		await writeToAdapter(finalState);
+
 		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Set:`, newState);
+			console.log(`[rsc-state:${storageMode}] Set:`, finalState);
 		}
 
-		configuration.onUpdate?.(previousState, newState);
+		await configuration.onUpdate?.(previousState, finalState);
+	}
+
+	/**
+	 * Partially updates state by merging with existing state.
+	 * Runs middleware and triggers onUpdate callback.
+	 *
+	 * @param partialState - Partial state object to merge with current state
+	 * @returns Promise that resolves when patch is complete
+	 *
+	 * @example
+	 * ```typescript
+	 * // Update only userName, keep other properties
+	 * await userStore.patch({ userName: "New Name" });
+	 *
+	 * // Update multiple properties at once
+	 * await userStore.patch({ userName: "John", email: "john@example.com" });
+	 * ```
+	 */
+	async function patch(partialState: Partial<State>): Promise<void> {
+		const cacheInstance = await getCacheInstanceAsync();
+		const previousState = cacheInstance.state;
+		const patchedState = { ...previousState, ...partialState };
+
+		const finalState = await applyMiddleware("patch", previousState, patchedState);
+
+		cacheInstance.state = finalState;
+		invalidateDerivedCache(cacheInstance);
+
+		await writeToAdapter(finalState);
+
+		if (configuration.debug) {
+			console.log(`[rsc-state:${storageMode}] Patched:`, finalState);
+		}
+
+		await configuration.onUpdate?.(previousState, finalState);
 	}
 
 	/**
 	 * Selects and returns a specific value from state using a selector function.
+	 * This is a synchronous operation.
 	 *
 	 * @param selectorFunction - Function that extracts desired value from state
 	 * @returns Selected value extracted from state
@@ -305,59 +469,67 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 
 	/**
 	 * Resets state back to initial values defined in configuration.
+	 * Runs middleware and triggers onReset callback.
 	 *
-	 * @returns void
+	 * @returns Promise that resolves when reset is complete
 	 *
 	 * @example
 	 * ```typescript
 	 * // Reset store to initial state
-	 * userStore.reset();
+	 * await userStore.reset();
 	 *
 	 * // Useful for logout flows
 	 * async function handleLogout() {
 	 *   await signOut();
-	 *   userStore.reset();
+	 *   await userStore.reset();
 	 * }
 	 * ```
 	 */
-	function reset(): void {
-		const cacheInstance = getCacheInstance();
+	async function reset(): Promise<void> {
+		const cacheInstance = await getCacheInstanceAsync();
+		const previousState = cacheInstance.state;
+		const initialState = getInitialState();
 
-		cacheInstance.state = getInitialState();
+		const finalState = await applyMiddleware("reset", previousState, initialState);
+
+		cacheInstance.state = finalState;
 		invalidateDerivedCache(cacheInstance);
+
+		await writeToAdapter(finalState);
 
 		if (configuration.debug) {
 			console.log(`[rsc-state:${storageMode}] Reset`);
 		}
 
-		configuration.onReset?.();
+		await configuration.onReset?.();
 	}
 
 	/**
 	 * Executes multiple state updates in a batch, computing derived state only once
-	 * after all updates complete. Improves performance when making multiple updates.
+	 * after all updates complete. Middleware is applied once after the batch.
+	 * Improves performance when making multiple updates.
 	 *
-	 * @param callback - Function that receives a batch API with update and set methods
-	 * @returns void
+	 * @param callback - Function that receives a batch API with update, set, and patch methods
+	 * @returns Promise that resolves when batch is complete
 	 *
 	 * @example
 	 * ```typescript
 	 * // Multiple updates in a single batch
-	 * userStore.batch((api) => {
+	 * await userStore.batch((api) => {
 	 *   api.update((state) => ({ ...state, userName: "John" }));
-	 *   api.update((state) => ({ ...state, email: "john@example.com" }));
+	 *   api.patch({ email: "john@example.com" });
 	 *   api.update((state) => ({ ...state, lastLogin: new Date() }));
 	 * });
 	 *
 	 * // Mix update and set within a batch
-	 * cartStore.batch((api) => {
+	 * await cartStore.batch((api) => {
 	 *   api.update((state) => ({ ...state, itemCount: state.itemCount + 1 }));
 	 *   api.set({ items: [], itemCount: 0, total: 0 }); // Clear cart
 	 * });
 	 * ```
 	 */
-	function batch(callback: (api: BatchApi<State>) => void): void {
-		const cacheInstance = getCacheInstance();
+	async function batch(callback: (api: BatchApi<State>) => void): Promise<void> {
+		const cacheInstance = await getCacheInstanceAsync();
 		const initialState = cacheInstance.state;
 
 		const batchApi: BatchApi<State> = {
@@ -367,17 +539,26 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 			set: (newState: State): void => {
 				cacheInstance.state = newState;
 			},
+			patch: (partialState: Partial<State>): void => {
+				cacheInstance.state = { ...cacheInstance.state, ...partialState };
+			},
 		};
 
 		callback(batchApi);
 
+		// Apply middleware once after batch completes
+		const finalState = await applyMiddleware("batch", initialState, cacheInstance.state);
+
+		cacheInstance.state = finalState;
 		invalidateDerivedCache(cacheInstance);
 
+		await writeToAdapter(finalState);
+
 		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Batch updated:`, cacheInstance.state);
+			console.log(`[rsc-state:${storageMode}] Batch updated:`, finalState);
 		}
 
-		configuration.onUpdate?.(initialState, cacheInstance.state);
+		await configuration.onUpdate?.(initialState, finalState);
 	}
 
 	return {
@@ -385,6 +566,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		read,
 		update,
 		set,
+		patch,
 		select,
 		reset,
 		batch,

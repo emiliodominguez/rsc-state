@@ -4,7 +4,7 @@ import { createServerStore } from "../src";
 
 describe("integration tests", () => {
 	describe("authentication flow", () => {
-		it("should handle full authentication lifecycle", () => {
+		it("should handle full authentication lifecycle", async () => {
 			// Given
 			const authStore = createServerStore({
 				initial: {
@@ -23,7 +23,7 @@ describe("integration tests", () => {
 			expect(authStore.read().isAdministrator).toEqual(false);
 
 			// When - simulate login
-			authStore.initialize({
+			await authStore.initialize({
 				userId: "user-123",
 				userName: "John Doe",
 				userRole: "admin",
@@ -36,7 +36,7 @@ describe("integration tests", () => {
 			expect(authenticatedState.userName).toEqual("John Doe");
 
 			// When - update user role
-			authStore.update((previous) => ({
+			await authStore.update((previous) => ({
 				...previous,
 				userRole: "user",
 			}));
@@ -46,7 +46,7 @@ describe("integration tests", () => {
 			expect(authStore.read().isAuthenticated).toEqual(true);
 
 			// When - logout
-			authStore.reset();
+			await authStore.reset();
 
 			// Then - user is not authenticated
 			expect(authStore.read().isAuthenticated).toEqual(false);
@@ -61,7 +61,7 @@ describe("integration tests", () => {
 			pricePerUnit: number;
 		}
 
-		it("should handle cart operations with derived totals", () => {
+		it("should handle cart operations with derived totals", async () => {
 			// Given
 			const cartStore = createServerStore({
 				initial: {
@@ -80,7 +80,7 @@ describe("integration tests", () => {
 			expect(cartStore.read().subtotal).toEqual(0);
 
 			// When - add first item
-			cartStore.update((previous) => ({
+			await cartStore.update((previous) => ({
 				...previous,
 				items: [
 					...previous.items,
@@ -98,7 +98,7 @@ describe("integration tests", () => {
 			expect(cartStore.read().subtotal).toEqual(20);
 
 			// When - add second item
-			cartStore.update((previous) => ({
+			await cartStore.update((previous) => ({
 				...previous,
 				items: [
 					...previous.items,
@@ -116,7 +116,7 @@ describe("integration tests", () => {
 			expect(cartStore.read().subtotal).toEqual(45);
 
 			// When - apply coupon
-			cartStore.update((previous) => ({
+			await cartStore.update((previous) => ({
 				...previous,
 				couponCode: "SAVE10",
 			}));
@@ -125,7 +125,7 @@ describe("integration tests", () => {
 			expect(cartStore.read().hasCoupon).toEqual(true);
 
 			// When - clear cart
-			cartStore.reset();
+			await cartStore.reset();
 
 			// Then - cart is empty
 			expect(cartStore.read().itemCount).toEqual(0);
@@ -134,7 +134,7 @@ describe("integration tests", () => {
 	});
 
 	describe("nested state management", () => {
-		it("should handle deeply nested state updates", () => {
+		it("should handle deeply nested state updates", async () => {
 			// Given
 			const formStore = createServerStore({
 				initial: {
@@ -167,7 +167,7 @@ describe("integration tests", () => {
 			expect(formStore.read().isPersonalInformationComplete).toEqual(false);
 
 			// When - fill personal info
-			formStore.update((previous) => ({
+			await formStore.update((previous) => ({
 				...previous,
 				formData: {
 					...previous.formData,
@@ -183,7 +183,7 @@ describe("integration tests", () => {
 			expect(formStore.read().isPersonalInformationComplete).toEqual(true);
 
 			// When - add validation error
-			formStore.update((previous) => ({
+			await formStore.update((previous) => ({
 				...previous,
 				validationErrors: {
 					postalCode: "Invalid postal code format",
@@ -194,7 +194,7 @@ describe("integration tests", () => {
 			expect(formStore.read().hasValidationErrors).toEqual(true);
 
 			// When - clear errors
-			formStore.update((previous) => ({
+			await formStore.update((previous) => ({
 				...previous,
 				validationErrors: {},
 			}));
@@ -205,7 +205,7 @@ describe("integration tests", () => {
 	});
 
 	describe("multiple stores", () => {
-		it("should maintain independent state across stores", () => {
+		it("should maintain independent state across stores", async () => {
 			// Given
 			const userStore = createServerStore({
 				initial: { userName: "" },
@@ -216,8 +216,8 @@ describe("integration tests", () => {
 			});
 
 			// When - initialize both stores
-			userStore.initialize({ userName: "Alice" });
-			settingsStore.initialize({ darkModeEnabled: true, languageCode: "es" });
+			await userStore.initialize({ userName: "Alice" });
+			await settingsStore.initialize({ darkModeEnabled: true, languageCode: "es" });
 
 			// Then - both stores have correct values
 			expect(userStore.read().userName).toEqual("Alice");
@@ -225,7 +225,7 @@ describe("integration tests", () => {
 			expect(settingsStore.read().languageCode).toEqual("es");
 
 			// When - update one store
-			userStore.update(() => ({ userName: "Bob" }));
+			await userStore.update(() => ({ userName: "Bob" }));
 
 			// Then - other store is unaffected
 			expect(userStore.read().userName).toEqual("Bob");
