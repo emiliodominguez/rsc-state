@@ -23,7 +23,7 @@ export default function HomePage(): React.ReactNode {
 				<h2>Storage Modes Comparison</h2>
 
 				<div className="grid-comparison">
-					<div className={`comparison-card comparison-card-persistent ${user.isDarkMode ? "dark" : "light"}`}>
+					<div className="comparison-card comparison-card-persistent">
 						<strong className="comparison-title-persistent">PERSISTENT Storage</strong>{" "}
 						<p className="comparison-code">
 							<code>storage: &quot;persistent&quot;</code>
@@ -34,10 +34,10 @@ export default function HomePage(): React.ReactNode {
 							<li>Shared across ALL users</li>
 							<li>Lost on server restart</li>
 						</ul>
-						<p className={`comparison-hint ${user.isDarkMode ? "dark" : "light"}`}>Best for: Feature flags, app config</p>
+						<p className="comparison-hint">Best for: Feature flags, app config</p>
 					</div>
 
-					<div className={`comparison-card comparison-card-request ${user.isDarkMode ? "dark" : "light"}`}>
+					<div className="comparison-card comparison-card-request">
 						<strong className="comparison-title-request">REQUEST Storage</strong>{" "}
 						<p className="comparison-code">
 							<code>storage: &quot;request&quot;</code> (default)
@@ -48,17 +48,15 @@ export default function HomePage(): React.ReactNode {
 							<li>Safe for user data</li>
 							<li>Use with cookies/DB</li>
 						</ul>
-						<p className={`comparison-hint ${user.isDarkMode ? "dark" : "light"}`}>Best for: User sessions, auth, preferences</p>
+						<p className="comparison-hint">Best for: User sessions, auth, preferences</p>
 					</div>
 				</div>
 			</section>
 
-			<section className={`section section-persistent ${user.isDarkMode ? "dark" : "light"}`}>
+			<section className="section section-persistent">
 				<h2 className="section-title section-title-persistent">Feature Flags (Persistent Storage)</h2>
 
-				<p className={`section-description text-muted ${user.isDarkMode ? "dark" : "light"}`}>
-					No cookies needed! State persists in module memory. Shared across ALL users.
-				</p>
+				<p className="section-description text-muted">No cookies needed! State persists in module memory. Shared across ALL users.</p>
 
 				<p>
 					Beta features: <strong>{featureFlags.betaFeatures ? "Enabled" : "Disabled"}</strong>
@@ -70,10 +68,7 @@ export default function HomePage(): React.ReactNode {
 					Status: <strong>{featureFlags.statusMessage}</strong>
 				</p>
 
-				<p
-					className={`section-description text-muted ${user.isDarkMode ? "dark" : "light"}`}
-					style={{ marginTop: "1rem", fontSize: "0.85rem" }}
-				>
+				<p className="section-description text-muted" style={{ marginTop: "1rem", fontSize: "0.85rem" }}>
 					💡 Check the server console to see lifecycle hooks in action!
 				</p>
 
@@ -115,12 +110,10 @@ export default function HomePage(): React.ReactNode {
 				</div>
 			</section>
 
-			<section className={`section section-request ${user.isDarkMode ? "dark" : "light"}`}>
+			<section className="section section-request">
 				<h2 className="section-title section-title-request">User (Request Storage)</h2>
 
-				<p className={`section-description text-muted ${user.isDarkMode ? "dark" : "light"}`}>
-					Hydrated from cookie each request. Isolated per user. Safe for sensitive data.
-				</p>
+				<p className="section-description text-muted">Hydrated from cookie each request. Isolated per user. Safe for sensitive data.</p>
 
 				{user.isAuthenticated ? (
 					<>
@@ -148,9 +141,9 @@ export default function HomePage(): React.ReactNode {
 					</>
 				) : (
 					<form className="form-login" action={login}>
-						<input type="text" name="userName" placeholder="Name" required className={`input ${user.isDarkMode ? "dark" : "light"}`} />
+						<input type="text" name="userName" placeholder="Name" required className="input" />
 
-						<input type="email" name="userEmail" placeholder="Email" required className={`input ${user.isDarkMode ? "dark" : "light"}`} />
+						<input type="email" name="userEmail" placeholder="Email" required className="input" />
 
 						<button type="submit" className="btn btn-request">
 							Login
@@ -159,7 +152,7 @@ export default function HomePage(): React.ReactNode {
 				)}
 			</section>
 
-			<section className={`section section-neutral ${user.isDarkMode ? "dark" : "light"}`}>
+			<section className="section section-neutral">
 				<h2 className="section-title">Current Store State</h2>
 
 				<pre className="state-display">

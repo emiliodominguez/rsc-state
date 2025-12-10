@@ -40,6 +40,48 @@
 - Semicolons: required
 - Single quotes: false
 
+### JSX Formatting
+
+Add blank lines between sibling JSX elements for improved readability:
+
+```tsx
+// Good - blank lines between sibling elements
+return (
+	<div>
+		<h1>Title</h1>
+
+		<p>Description paragraph</p>
+
+		<div className="content">
+			<span>First item</span>
+
+			<span>Second item</span>
+		</div>
+
+		<button>Action</button>
+	</div>
+);
+
+// Bad - no spacing between elements
+return (
+	<div>
+		<h1>Title</h1>
+		<p>Description paragraph</p>
+		<div className="content">
+			<span>First item</span>
+			<span>Second item</span>
+		</div>
+		<button>Action</button>
+	</div>
+);
+```
+
+This applies to:
+
+- Sibling elements at the same nesting level
+- Elements inside fragments (`<>...</>`)
+- Form elements, links, buttons, etc.
+
 ### Naming Conventions
 
 - **NO ACRONYMS**: Write full, descriptive names

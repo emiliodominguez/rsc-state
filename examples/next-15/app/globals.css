@@ -99,13 +99,13 @@ main {
 		border-color var(--transition-base);
 }
 
-.header.light {
+body.light .header {
 	background-color: var(--color-surface-light);
 	color: var(--color-text-light);
 	border-color: var(--color-border-light);
 }
 
-.header.dark {
+body.dark .header {
 	background-color: var(--color-surface-dark);
 	color: var(--color-text-dark);
 	border-color: var(--color-border-dark);
@@ -153,11 +153,11 @@ main {
 	opacity: 0.7;
 }
 
-.nav-link.light {
+body.light .nav-link {
 	color: var(--color-link-light);
 }
 
-.nav-link.dark {
+body.dark .nav-link {
 	color: var(--color-link-dark);
 }
 
@@ -219,39 +219,47 @@ main {
 	font-size: var(--font-size-sm);
 }
 
-.section-persistent.light {
+.section-persistent {
+	border: 1px solid var(--color-persistent);
+}
+
+body.light .section-persistent {
 	background-color: var(--color-surface-persistent-light);
-	border: 1px solid var(--color-persistent);
 }
 
-.section-persistent.dark {
+body.dark .section-persistent {
 	background-color: var(--color-surface-persistent-dark);
-	border: 1px solid var(--color-persistent);
 }
 
-.section-request.light {
+.section-request {
+	border: 1px solid var(--color-request);
+}
+
+body.light .section-request {
 	background-color: var(--color-surface-request-light);
-	border: 1px solid var(--color-request);
 }
 
-.section-request.dark {
+body.dark .section-request {
 	background-color: var(--color-surface-request-dark);
-	border: 1px solid var(--color-request);
 }
 
-.section-neutral.light {
+body.light .section-neutral {
 	background-color: var(--color-surface-neutral-light);
 }
 
-.section-neutral.dark {
+body.dark .section-neutral {
 	background-color: var(--color-surface-neutral-dark);
 }
 
-.text-muted.light {
+.text-muted {
+	font-size: var(--font-size-sm);
+}
+
+body.light .text-muted {
 	color: var(--color-text-muted-light);
 }
 
-.text-muted.dark {
+body.dark .text-muted {
 	color: var(--color-text-muted-dark);
 }
 
@@ -279,24 +287,28 @@ main {
 	box-shadow: var(--shadow-sm);
 }
 
-.comparison-card-persistent.light {
+.comparison-card-persistent {
+	border-left-color: var(--color-persistent);
+}
+
+body.light .comparison-card-persistent {
 	background-color: var(--color-surface-persistent-light);
-	border-left-color: var(--color-persistent);
 }
 
-.comparison-card-persistent.dark {
+body.dark .comparison-card-persistent {
 	background-color: var(--color-surface-persistent-dark);
-	border-left-color: var(--color-persistent);
 }
 
-.comparison-card-request.light {
+.comparison-card-request {
+	border-left-color: var(--color-request);
+}
+
+body.light .comparison-card-request {
 	background-color: var(--color-surface-request-light);
-	border-left-color: var(--color-request);
 }
 
-.comparison-card-request.dark {
+body.dark .comparison-card-request {
 	background-color: var(--color-surface-request-dark);
-	border-left-color: var(--color-request);
 }
 
 .comparison-title-persistent {
@@ -325,11 +337,11 @@ main {
 	font-size: 0.8rem;
 }
 
-.comparison-hint.light {
+body.light .comparison-hint {
 	color: var(--color-text-muted-light);
 }
 
-.comparison-hint.dark {
+body.dark .comparison-hint {
 	color: var(--color-text-muted-dark);
 }
 
@@ -405,18 +417,18 @@ main {
 	box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
 }
 
-.input.light {
+body.light .input {
 	background-color: var(--color-surface-light);
 	color: var(--color-text-light);
 }
 
-.input.dark {
+body.dark .input {
 	background-color: var(--color-border-dark);
 	color: var(--color-text-dark);
 	border-color: #555;
 }
 
-.input.dark:focus {
+body.dark .input:focus {
 	border-color: var(--color-request);
 }
 
@@ -439,6 +451,41 @@ main {
 .how-it-works-list {
 	line-height: 1.8;
 	padding-left: var(--spacing-xl);
+}
+
+/* Debug page */
+.debug-component h3 {
+	margin: 0 0 var(--spacing-sm);
+	font-size: var(--font-size-base);
+}
+
+.debug-description {
+	font-size: var(--font-size-sm);
+	opacity: 0.7;
+	margin: 0 0 var(--spacing-md);
+}
+
+.debug-data {
+	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+	font-size: var(--font-size-sm);
+}
+
+.debug-data p {
+	margin: var(--spacing-sm) 0;
+}
+
+.debug-data code {
+	padding: 0.15rem 0.4rem;
+	border-radius: var(--radius-sm);
+	font-size: var(--font-size-xs);
+}
+
+body.light .debug-data code {
+	background: rgba(0, 0, 0, 0.1);
+}
+
+body.dark .debug-data code {
+	background: rgba(255, 255, 255, 0.1);
 }
 
 /* Responsive */

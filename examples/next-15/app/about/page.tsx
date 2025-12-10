@@ -10,7 +10,7 @@ export default async function AboutPage(): Promise<React.ReactNode> {
 
 			<p className="about-intro">This page demonstrates that state persists across navigation.</p>
 
-			<section className={`section section-neutral ${user.isDarkMode ? "dark" : "light"}`}>
+			<section className="section section-neutral">
 				<h2 className="section-title">Current State (same as home page)</h2>
 
 				<pre className="state-display">
@@ -25,7 +25,7 @@ export default async function AboutPage(): Promise<React.ReactNode> {
 				</pre>
 			</section>
 
-			<section className={`section section-request ${user.isDarkMode ? "dark" : "light"}`}>
+			<section className="section section-request">
 				<h2 className="section-title section-title-request">How it works</h2>
 
 				<ul className="how-it-works-list">
@@ -40,9 +40,7 @@ export default async function AboutPage(): Promise<React.ReactNode> {
 					</li>
 				</ul>
 
-				<p className={`section-footer text-muted ${user.isDarkMode ? "dark" : "light"}`}>
-					Navigate back to Home and toggle settings - they&apos;ll persist when you return here.
-				</p>
+				<p className="section-footer text-muted">Navigate back to Home and toggle settings - they&apos;ll persist when you return here.</p>
 			</section>
 		</div>
 	);

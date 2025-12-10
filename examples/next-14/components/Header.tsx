@@ -7,7 +7,7 @@ export function Header(): React.ReactNode {
 	const featureFlags = featureFlagsStore.read();
 
 	return (
-		<header className={`header ${user.isDarkMode ? "dark" : "light"}`}>
+		<header className="header">
 			<div className="header-content">
 				<div className="header-left">
 					<div className="header-brand">
@@ -16,11 +16,14 @@ export function Header(): React.ReactNode {
 					</div>
 
 					<nav className="nav">
-						<Link href="/" className={`nav-link ${user.isDarkMode ? "dark" : "light"}`}>
+						<Link href="/" className="nav-link">
 							Home
 						</Link>
-						<Link href="/about" className={`nav-link ${user.isDarkMode ? "dark" : "light"}`}>
+						<Link href="/about" className="nav-link">
 							About
+						</Link>
+						<Link href="/debug" className="nav-link">
+							Debug
 						</Link>
 					</nav>
 				</div>
