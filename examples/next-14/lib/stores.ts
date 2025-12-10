@@ -30,6 +30,7 @@ export const featureFlagsStore = createServerStore({
 		if (previousState.betaFeatures !== nextState.betaFeatures) {
 			console.log("[FeatureFlags] onUpdate - Beta features:", previousState.betaFeatures, "->", nextState.betaFeatures);
 		}
+
 		if (previousState.maintenanceMode !== nextState.maintenanceMode) {
 			console.log("[FeatureFlags] onUpdate - Maintenance mode:", previousState.maintenanceMode, "->", nextState.maintenanceMode);
 		}
@@ -54,6 +55,7 @@ export const errorDemoStore = createServerStore({
 		if (state.simulateError) {
 			throw new Error("Simulated error in derive function");
 		}
+
 		return { status: "OK" };
 	},
 	onError: (error, context) => {
