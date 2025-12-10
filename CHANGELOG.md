@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+### Patch Changes
+
+- cab594b: Add usage examples to all public API methods in JSDoc documentation for improved developer experience and IDE tooltips
+
 ## 0.2.1
 
 ### Patch Changes

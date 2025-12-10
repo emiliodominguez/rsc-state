@@ -1,6 +1,6 @@
 {
 	"name": "rsc-state",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Type-safe state management for React Server Components",
 	"main": "./dist/index.js",
 	"module": "./dist/index.mjs",
