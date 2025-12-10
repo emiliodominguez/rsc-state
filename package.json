@@ -17,7 +17,7 @@
 		"README.md"
 	],
 	"scripts": {
-		"build": "tsup",
+		"build": "NODE_ENV=production tsup",
 		"dev": "tsup --watch",
 		"test": "vitest run",
 		"test:watch": "vitest",

@@ -46,7 +46,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	type DerivedState = D;
 	type FullState = State & DerivedState;
 
-	const storageMode: StorageMode = configuration.storage?.toLowerCase() === "persistent" ? "persistent" : "request";
+	const storageMode: StorageMode = configuration.storage ?? "request";
 
 	/**
 	 * Internal cache instance structure that holds the current state,
@@ -142,9 +142,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 		} catch (thrownError: unknown) {
 			const errorInstance = thrownError instanceof Error ? thrownError : new Error(String(thrownError));
 
-			if (configuration.onError) {
-				configuration.onError(errorInstance, { method: "derive", state: baseState });
-			}
+			configuration.onError?.(errorInstance, { method: "derive", state: baseState });
 
 			if (configuration.debug) {
 				console.warn(`[rsc-state:${storageMode}] Error in derive function:`, errorInstance.message);
@@ -185,9 +183,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 			console.log(`[rsc-state:${storageMode}] Initialized:`, initialState);
 		}
 
-		if (configuration.onInitialize) {
-			configuration.onInitialize(initialState);
-		}
+		configuration.onInitialize?.(initialState);
 	}
 
 	/**
@@ -223,9 +219,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 			console.log(`[rsc-state:${storageMode}] Updated:`, cacheInstance.state);
 		}
 
-		if (configuration.onUpdate) {
-			configuration.onUpdate(previousState, cacheInstance.state);
-		}
+		configuration.onUpdate?.(previousState, cacheInstance.state);
 	}
 
 	/**
@@ -245,9 +239,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 			console.log(`[rsc-state:${storageMode}] Set:`, newState);
 		}
 
-		if (configuration.onUpdate) {
-			configuration.onUpdate(previousState, newState);
-		}
+		configuration.onUpdate?.(previousState, newState);
 	}
 
 	/**
@@ -275,9 +267,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 			console.log(`[rsc-state:${storageMode}] Reset`);
 		}
 
-		if (configuration.onReset) {
-			configuration.onReset();
-		}
+		configuration.onReset?.();
 	}
 
 	/**
@@ -308,9 +298,7 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 			console.log(`[rsc-state:${storageMode}] Batch updated:`, cacheInstance.state);
 		}
 
-		if (configuration.onUpdate) {
-			configuration.onUpdate(initialState, cacheInstance.state);
-		}
+		configuration.onUpdate?.(initialState, cacheInstance.state);
 	}
 
 	return {
