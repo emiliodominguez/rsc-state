@@ -90,5 +90,11 @@
 		"*.{json,md}": [
 			"prettier --write"
 		]
+	},
+	"overrides": {
+		"commitizen": {
+			"inquirer": "8.2.7",
+			"lodash": "^4.18.1"
+		}
 	}
 }
