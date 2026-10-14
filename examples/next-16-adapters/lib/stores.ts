@@ -143,29 +143,14 @@ export const counterStore = createServerStore({
 });
 
 /**
- * Loads settings from the file adapter and returns current state.
- * Reads directly from the file adapter to ensure we always get persisted data.
- * Uses React's cache() to dedupe calls within the same request.
+ * Returns the current settings, re-reading the JSON file once per request.
+ * `force: true` picks up edits made outside this process (another server instance,
+ * or editing `.data/settings.json` by hand). React's cache() dedupes calls within a request.
  */
-export const getSettings = cache(async () => {
-	// Read directly from adapter to get persisted state
-	const persistedState = await readDataFile();
-
-	if (persistedState) {
-		// Sync the store with persisted state
-		await settingsStore.set(persistedState);
-	}
-
-	return settingsStore.read();
-});
+export const getSettings = cache(async () => settingsStore.hydrate({ force: true }));
 
 /**
- * Loads counter from the memory adapter and returns current state.
- * Uses React's cache() to dedupe calls within the same request.
+ * Returns the current counter. The memory adapter is only read on first access;
+ * after that the in-process state is the source of truth.
  */
-export const getCounter = cache(async () => {
-	// For in-memory adapter, just trigger an update to ensure instance exists
-	await counterStore.update((state) => state);
-
-	return counterStore.read();
-});
+export const getCounter = cache(async () => counterStore.hydrate());
