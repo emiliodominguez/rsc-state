@@ -305,3 +305,91 @@ describe("shared mutable containers in literal initial state", () => {
 		expect(consoleWarn).not.toHaveBeenCalled();
 	});
 });
+
+describe("persistent registry across library versions", () => {
+	it("should ignore keyed instances registered by an incompatible library version", async () => {
+		// Given - what rsc-state 1.1.0 registers under its unversioned registry key
+		const legacyRegistry = new Map<string, unknown>([
+			["shared-across-versions", { state: { role: "admin" }, hydrated: true, pendingMutation: null }],
+		]);
+		(globalThis as Record<symbol, unknown>)[Symbol.for("rsc-state.persistent-instances")] = legacyRegistry;
+		const store = createServerStore({
+			storage: "persistent",
+			key: "shared-across-versions",
+			initial: { role: "user" },
+			adapter: { read: () => null, write: vi.fn() },
+		});
+
+		// When
+		const state = await store.hydrate({ force: true });
+
+		// Then
+		expect(state.role).toEqual("user");
+	});
+
+	it("should keep the registry schema version in sync with the instance shape", () => {
+		// Given
+		createServerStore({ storage: "persistent", key: "schema-guard", initial: { count: 0 } }).read();
+		const registry = (globalThis as Record<symbol, Map<string, object> | undefined>)[Symbol.for("rsc-state.persistent-instances.v2")];
+
+		// When
+		const instanceFields = Object.keys(registry?.get("schema-guard") ?? {}).sort();
+
+		// Then - if this fails, the instance shape changed: bump STORE_INSTANCE_SCHEMA_VERSION and update this list
+		expect(instanceFields).toEqual([
+			"deriveError",
+			"derivedBy",
+			"derivedSourceState",
+			"fullState",
+			"hydrated",
+			"initialized",
+			"pendingHydration",
+			"pendingMutation",
+			"queuedForcedHydration",
+			"state",
+		]);
+	});
+});
+
+describe("hostile values thrown from derive", () => {
+	it("should keep read() non-throwing when derive throws a null-prototype object", () => {
+		// Given
+		const thrownValue: unknown = Object.create(null);
+		const onError = vi.fn();
+		const store = createServerStore({
+			initial: { count: 0 },
+			derive: (): { doubled: number } => {
+				throw thrownValue;
+			},
+			onError,
+		});
+
+		// When
+		const state = store.read();
+
+		// Then
+		expect(state.count).toEqual(0);
+		expect(onError).toHaveBeenCalledWith(expect.objectContaining({ cause: thrownValue }), expect.anything());
+	});
+
+	it("should keep read() non-throwing when derive throws a value whose toString throws", () => {
+		// Given
+		const store = createServerStore({
+			initial: { count: 0 },
+			derive: (): { doubled: number } => {
+				throw {
+					toString(): string {
+						throw new Error("toString exploded");
+					},
+				};
+			},
+			onError: vi.fn(),
+		});
+
+		// When
+		const readState = (): unknown => store.read();
+
+		// Then
+		expect(readState).not.toThrow();
+	});
+});

@@ -56,6 +56,39 @@ describe("type inference", () => {
 		void store.patch({ invalidKey: "value" });
 	});
 
+	it("should reject undefined for required properties in patch()", () => {
+		const authStore = createServerStore({
+			initial: { userId: null as string | null, userName: "" },
+			derive: (state) => ({ isAuthenticated: state.userId !== null }),
+		});
+		const session = undefined as { userId: string } | undefined;
+
+		// @ts-expect-error - undefined would make `userId !== null` read as signed in
+		void authStore.patch({ userId: undefined });
+
+		// @ts-expect-error - optional chaining can produce undefined
+		void authStore.patch({ userId: session?.userId });
+
+		void authStore.patch({ userId: null });
+		void authStore.patch({ userId: "user-1", userName: "John" });
+	});
+
+	it("should still accept undefined for optional properties in patch()", () => {
+		const store = createServerStore({ initial: { label: "" } as { label: string; note?: string } });
+
+		void store.patch({ note: undefined });
+	});
+
+	it("should reject undefined for required properties in the batch draft patch()", () => {
+		const store = createServerStore({ initial: { userId: null as string | null } });
+
+		void store.batch((api) => {
+			// @ts-expect-error - same protection as ServerStore.patch
+			api.patch({ userId: undefined });
+			api.patch({ userId: null });
+		});
+	});
+
 	it("should type the batch draft API", () => {
 		const store = createServerStore({ initial: { count: 0 } });
 

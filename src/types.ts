@@ -392,7 +392,8 @@ export interface BatchApi<T> {
 	set(newState: T): void;
 
 	/**
-	 * Shallow-merges the provided properties into the draft.
+	 * Shallow-merges the provided properties into the draft. Typed with `Pick` so a required
+	 * property can't be set to `undefined` (see `ServerStore.patch`).
 	 *
 	 * @param partialState - Partial state object to merge
 	 *
@@ -404,7 +405,7 @@ export interface BatchApi<T> {
 	 * });
 	 * ```
 	 */
-	patch(partialState: Partial<T>): void;
+	patch<K extends keyof T>(partialState: Pick<T, K>): void;
 }
 
 /**
@@ -518,6 +519,11 @@ export interface ServerStore<T extends object, D extends object = EmptyDerivedSt
 	 * If every provided value is identical (`Object.is`) to the current one, the call
 	 * is a no-op: no middleware, no adapter write, no onUpdate.
 	 *
+	 * The parameter is typed with `Pick` rather than `Partial`, so each provided property keeps
+	 * its declared type: `undefined` is only accepted where the state type allows it. `Partial`
+	 * would accept `patch({ userId: session?.userId })` for a `string | null` field and silently
+	 * store `undefined`, turning a check like `userId !== null` into a false "signed in".
+	 *
 	 * @param partialState - Partial state object to merge with current state
 	 * @returns Promise that resolves when patch is complete
 	 *
@@ -530,7 +536,7 @@ export interface ServerStore<T extends object, D extends object = EmptyDerivedSt
 	 * await userStore.patch({ userName: "John", email: "john@example.com" });
 	 * ```
 	 */
-	patch(partialState: Partial<T>): Promise<void>;
+	patch<K extends keyof T>(partialState: Pick<T, K>): Promise<void>;
 
 	/**
 	 * Selects and returns a specific value from state using a selector function.

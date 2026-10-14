@@ -2,7 +2,17 @@
 // React 18), where a named import fails at link time; the store reports a clear error instead
 import * as React from "react";
 
-import type { BatchApi, EmptyDerivedState, HydrateOptions, OperationType, ServerStore, StorageMode, StoreConfig, StoreState } from "./types";
+import type {
+	BatchApi,
+	EmptyDerivedState,
+	HydrateOptions,
+	OperationType,
+	ServerStore,
+	StorageAdapter,
+	StorageMode,
+	StoreConfig,
+	StoreState,
+} from "./types";
 
 /**
  * A committed state change, handed to lifecycle callbacks once the mutation lock is released.
@@ -46,9 +56,23 @@ interface StoreInstance<T, F> {
 
 	/** In-flight adapter read shared by concurrent callers, or null when idle. */
 	pendingHydration: Promise<void> | null;
+
+	/**
+	 * Forced adapter read that is queued but has not started yet. Concurrent forced hydrations
+	 * join it instead of each queueing their own read.
+	 */
+	queuedForcedHydration: { marker: { hasStarted: boolean }; promise: Promise<void> } | null;
 }
 
-const PERSISTENT_REGISTRY_KEY: unique symbol = Symbol.for("rsc-state.persistent-instances");
+/**
+ * Version of the `StoreInstance` shape. The registry is global, so different rsc-state copies in
+ * one process (nested dependencies, mixed versions) can reach it. Instances are only shared
+ * between copies with the same shape; a copy reading an instance created by an older shape would
+ * crash on the missing fields. Bump this whenever `StoreInstance` gains, loses or changes a field.
+ */
+const STORE_INSTANCE_SCHEMA_VERSION = 2;
+
+const PERSISTENT_REGISTRY_KEY: unique symbol = Symbol.for(`rsc-state.persistent-instances.v${STORE_INSTANCE_SCHEMA_VERSION}`);
 
 /**
  * Global scope augmented with the keyed persistent instance registry.
@@ -104,12 +128,18 @@ function isPromiseLike<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
 
 /**
  * Normalizes any thrown value into an Error instance so callbacks receive a consistent type.
+ * Never throws itself: a null-prototype object or a throwing `toString` would otherwise turn a
+ * contained derive failure into an exception from `read()`. The original value is kept as `cause`.
  *
  * @param thrownValue - Value caught in a catch clause
- * @returns The original Error, or a new Error wrapping the stringified value
+ * @returns The original Error, or a new Error describing the thrown value
  */
 function toError(thrownValue: unknown): Error {
-	return thrownValue instanceof Error ? thrownValue : new Error(String(thrownValue));
+	try {
+		return thrownValue instanceof Error ? thrownValue : new Error(String(thrownValue), { cause: thrownValue });
+	} catch {
+		return new Error("A non-Error value was thrown and could not be converted to a string", { cause: thrownValue });
+	}
 }
 
 /**
@@ -121,7 +151,7 @@ function toError(thrownValue: unknown): Error {
  * @param partialState - Properties to merge
  * @returns A new merged state, or the original state when nothing changed
  */
-function mergePartialState<T extends object>(state: T, partialState: Partial<T>): T {
+function mergePartialState<T extends object, K extends keyof T>(state: T, partialState: Pick<T, K>): T {
 	for (const key in partialState) {
 		if (!(key in state) || !Object.is(state[key], partialState[key])) {
 			return { ...state, ...partialState };
@@ -412,6 +442,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 			deriveError: null,
 			pendingMutation: null,
 			pendingHydration: null,
+			queuedForcedHydration: null,
 		};
 	}
 
@@ -818,9 +849,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 		const instance = getInstance();
 
 		if (adapter !== undefined && options?.force === true) {
-			await runExclusive(instance, async () => {
-				applyStoredState(instance, await adapter.read());
-			});
+			await forceHydration(instance, adapter);
 		} else {
 			const hydration = ensureHydrated(instance);
 
@@ -830,6 +859,44 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 		}
 
 		return resolveFullState(instance);
+	}
+
+	/**
+	 * Re-reads the adapter after pending mutations, coalescing concurrent callers.
+	 *
+	 * Without coalescing, the documented "force-hydrate once per request" pattern queues one
+	 * adapter read per request behind the mutation lock, so under load reads pile up without
+	 * bound and every mutation waits behind them. Callers join a read that is queued but has not
+	 * started yet, which still guarantees each caller data read after its own call.
+	 *
+	 * @param instance - Instance to refresh
+	 * @param storageAdapter - Adapter to read from
+	 * @returns Promise that resolves once a read started after this call has been applied
+	 */
+	function forceHydration(instance: Instance, storageAdapter: StorageAdapter<State>): Promise<void> {
+		if (instance.queuedForcedHydration !== null) {
+			return instance.queuedForcedHydration.promise;
+		}
+
+		const marker = { hasStarted: false };
+
+		const promise = runExclusive(instance, async () => {
+			marker.hasStarted = true;
+
+			// From here on the read may already be in flight, so later callers must queue a new one
+			if (instance.queuedForcedHydration?.marker === marker) {
+				instance.queuedForcedHydration = null;
+			}
+
+			applyStoredState(instance, await storageAdapter.read());
+		});
+
+		// An idle queue starts the task synchronously; only a read still waiting can be joined
+		if (!marker.hasStarted) {
+			instance.queuedForcedHydration = { marker, promise };
+		}
+
+		return promise;
 	}
 
 	/**
@@ -874,7 +941,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	 * @param partialState - Partial state object to merge with current state
 	 * @returns Promise that resolves when patch is complete
 	 */
-	function patch(partialState: Partial<State>): Promise<void> {
+	function patch<K extends keyof State>(partialState: Pick<State, K>): Promise<void> {
 		return mutate("patch", (previousState) => mergePartialState(previousState, partialState));
 	}
 
@@ -935,7 +1002,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 				assertBatchOpen();
 				draftState = newState;
 			},
-			patch(partialState: Partial<State>): void {
+			patch<K extends keyof State>(partialState: Pick<State, K>): void {
 				assertBatchOpen();
 				draftState = mergePartialState(draftState, partialState);
 			},

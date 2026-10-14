@@ -546,6 +546,46 @@ describe("hydrate", () => {
 		expect(state.count).toEqual(3);
 	});
 
+	it("should coalesce concurrent forced hydrations into a bounded number of adapter reads", async () => {
+		// Given
+		const { adapter } = createMemoryAdapter({ count: 1 }, 5);
+		const store = createServerStore({ storage: "persistent", initial: { count: 0 }, adapter });
+		await store.hydrate();
+		adapter.read.mockClear();
+
+		// When
+		await Promise.all(Array.from({ length: 100 }, () => store.hydrate({ force: true })));
+
+		// Then
+		expect(adapter.read.mock.calls.length).toBeLessThanOrEqual(2);
+	});
+
+	it("should not let a forced hydration join a read that started before it was requested", async () => {
+		// Given - a backend that returns the value as of when each read started
+		let storedCount = 1;
+		const adapter: StorageAdapter<{ count: number }> = {
+			read: async () => {
+				const snapshot = { count: storedCount };
+				await delay(5);
+
+				return snapshot;
+			},
+			write: vi.fn(),
+		};
+		const store = createServerStore({ storage: "persistent", initial: { count: 0 }, adapter });
+		await store.hydrate();
+		const earlierRead = store.hydrate({ force: true });
+
+		// When - storage changes while the earlier read is already in flight
+		storedCount = 2;
+		const laterState = await store.hydrate({ force: true });
+		await earlierRead;
+
+		// Then
+		expect(laterState.count).toEqual(2);
+		expect(store.read().count).toEqual(2);
+	});
+
 	it("should resolve immediately with current state for request-scoped stores", async () => {
 		// Given
 		const store = createServerStore({ initial: { count: 0 } });
