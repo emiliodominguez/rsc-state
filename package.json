@@ -24,10 +24,13 @@
 		"README.md"
 	],
 	"sideEffects": false,
+	"engines": {
+		"node": ">=18"
+	},
 	"scripts": {
 		"build": "NODE_ENV=production tsdown",
 		"dev": "tsdown --watch",
-		"test": "vitest run",
+		"test": "vitest run && tsc -p tsconfig.test.json",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
 		"bench": "vitest bench --run",
@@ -40,7 +43,7 @@
 		"changeset": "changeset",
 		"changeset:version": "changeset version",
 		"changeset:publish": "changeset publish",
-		"commit": "cz"
+		"commit": "commit"
 	},
 	"keywords": [
 		"react",
@@ -66,19 +69,18 @@
 		"@changesets/cli": "^3.0.3",
 		"@commitlint/cli": "^21.2.3",
 		"@commitlint/config-conventional": "^21.2.3",
+		"@commitlint/prompt-cli": "^21.2.3",
 		"@eslint/js": "^10.0.1",
 		"@types/node": "^22.20.5",
 		"@types/react": "^19.3.0",
 		"@vitest/coverage-v8": "^5.0.4",
-		"commitizen": "^4.3.2",
-		"cz-conventional-changelog": "^3.3.0",
 		"eslint": "^10.12.0",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-import-resolver-typescript": "^4.4.5",
 		"eslint-plugin-import-x": "^4.17.1",
 		"globals": "^17.13.0",
 		"husky": "^9.1.7",
-		"lint-staged": "^17.6.0",
+		"lint-staged": "^16.4.0",
 		"prettier": "^3.9.10",
 		"tsdown": "^0.23.1",
 		"typescript": "~6.0.3",
@@ -89,11 +91,6 @@
 	"peerDependencies": {
 		"react": "^18.3.0 || ^19.0.0"
 	},
-	"config": {
-		"commitizen": {
-			"path": "./node_modules/cz-conventional-changelog"
-		}
-	},
 	"lint-staged": {
 		"*.{ts,tsx}": [
 			"eslint --fix",
@@ -102,11 +99,5 @@
 		"*.{json,md}": [
 			"prettier --write"
 		]
-	},
-	"overrides": {
-		"commitizen": {
-			"inquirer": "8.2.7",
-			"lodash": "^4.18.1"
-		}
 	}
 }

@@ -25,7 +25,7 @@ This project uses:
 
 - ESLint for linting
 - Prettier for formatting
-- Conventional commits via commitizen
+- Conventional commits, enforced by commitlint
 
 All checks run automatically on pre-commit via husky.
 
@@ -47,7 +47,7 @@ See CLAUDE.md for detailed documentation guidelines.
 2. Make your changes with complete JSDoc
 3. Add tests for your changes
 4. Create a changeset: `npm run changeset`
-5. Commit using: `npm run commit` (or use conventional commit format)
+5. Commit using: `npm run commit` (interactive commitlint prompt) or write a conventional commit message directly
 6. Push and create a PR
 
 ## Commit Format

@@ -18,7 +18,7 @@
 - **Testing**: Vitest 5 (config in `vitest.config.mts`)
 - **Linting**: ESLint 10 (flat config, `eslint-plugin-import-x`)
 - **Formatting**: Prettier
-- **Commits**: Commitizen + Commitlint (conventional commits)
+- **Commits**: Commitlint (conventional commits; `npm run commit` opens its interactive prompt)
 - **Versioning**: Changesets
 - **Git Hooks**: Husky + lint-staged
 
@@ -303,7 +303,7 @@ Benchmarks use the Vitest 5 `bench` test fixture (`tests/store.bench.ts`). Read 
 
 The repository stays on TypeScript 6.0 until `typescript-eslint` supports TypeScript 7; config files use `.mts` because the package is `"type": "commonjs"`.
 
-Type-level tests live in `tests/*.test-d.ts` and run as part of `npm test` (Vitest typecheck).
+Type-level tests live in `tests/*.test-d.ts`. `npm test` compiles them with `tsc -p tsconfig.test.json` after the Vitest run, so a failing `expectTypeOf` fails the test command.
 Use `simulateNewRequest()` from `tests/request-scope.ts` to emulate a new server request in tests.
 
 Coverage targets:

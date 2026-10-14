@@ -5,15 +5,10 @@ export default defineConfig({
 		globals: true,
 		environment: "node",
 		setupFiles: ["./tests/setup.ts"],
-		typecheck: {
-			enabled: true,
-			include: ["tests/**/*.test-d.ts"],
-			tsconfig: "./tsconfig.test.json",
-		},
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json", "html"],
-			exclude: ["node_modules/", "dist/", "tests/", "examples/", "*.config.ts", "*.config.mjs", "**/*.d.ts"],
+			exclude: ["node_modules/", "dist/", "tests/", "examples/", "*.config.ts", "*.config.mts", "*.config.mjs", "**/*.d.ts"],
 		},
 	},
 });
