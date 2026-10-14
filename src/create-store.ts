@@ -269,8 +269,9 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 
 	/**
 	 * Warns once when React's cache is not memoizing, which happens outside a Server Component
-	 * render (route handlers, Server Actions, Client Components). There, every call gets a fresh
-	 * request instance and writes to a request-scoped store are silently discarded.
+	 * render (route handlers, Server Actions, Client Components) or when rsc-state resolves a
+	 * different React copy than the app renders with. Either way, every call gets a fresh request
+	 * instance and writes to a request-scoped store would otherwise be silently discarded.
 	 *
 	 * @param instance - Instance the current mutation resolved
 	 * @returns void
@@ -284,7 +285,9 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 		console.warn(
 			`${logPrefix} React cache() is not active here, so request-scoped state is discarded after every call. ` +
 				"Request-scoped stores only keep state while React renders Server Components; outside a render " +
-				'(e.g. route handlers or Server Actions) each call gets a fresh instance. Use storage: "persistent" or pass data explicitly.',
+				'(e.g. route handlers or Server Actions) each call gets a fresh instance. Use storage: "persistent" or pass data explicitly. ' +
+				"If this appears during a render, rsc-state is importing a different copy of React than your app " +
+				'(common with linked or workspace packages): dedupe "react" in your bundler (Vite: resolve.dedupe).',
 		);
 	}
 
