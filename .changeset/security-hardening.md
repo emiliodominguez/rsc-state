@@ -1,8 +1,8 @@
 ---
-"rsc-state": minor
+"rsc-state": major
 ---
 
-Security hardening
+Security release. Upgrade from 1.x promptly: mutating what `read()` returned in place could leak one request's data into later requests. See "Migration from v1.x to v2.x" in the README; most apps need no code changes.
 
 ### Fixes
 
@@ -10,6 +10,8 @@ Security hardening
 - **Forced hydration pile-up**: concurrent `hydrate({ force: true })` calls each queued their own adapter read behind the mutation lock, so the documented per-request pattern grew the queue without bound under load (100 concurrent requests: 100 sequential reads, and mutations waiting behind them). Concurrent callers now join a queued read that hasn't started yet; each caller still gets data read after its call.
 - **Registry version skew**: keyed persistent instances live in a global registry, so two rsc-state versions in one process could read each other's instances; a 1.1.0 instance crashed `hydrate({ force: true })` in newer code. The registry key now includes an instance schema version.
 - **Unprintable thrown values**: a `derive` that threw a null-prototype object, or a value whose `toString` throws, made `read()` throw despite the fallback; the error is now normalized safely, with the original value as `cause`.
+- **Lost update through re-entrancy**: a mutation started synchronously from inside another (an updater, or a synchronous middleware or adapter calling the store without awaiting) ran immediately and was then overwritten by the outer commit. Queue entries are now registered before a mutation starts, so such calls queue behind it in call order.
+- **Silent deadlocks**: a middleware, adapter or batch callback that awaits a mutating method of its own store hangs that store forever (for a persistent store, every user). A warning is now logged, once per store, when a queued mutation waits more than 10 seconds.
 - **Invalid state**: `null`, `undefined` and primitives from `initialize`, `set`, `update`, `patch`, `batch`, middleware or an adapter read are rejected with a `TypeError` instead of being committed (for example `JSON.parse("null")` from a tampered cookie).
 
 ### Type Changes

@@ -52,6 +52,27 @@ Request-scoped stores work in any framework that renders React Server Components
 
 React Router 8.4.0's RSC build fails with `@vitejs/plugin-rsc` 0.5.36 and later ("Vite RSC assets manifest not found"), independently of rsc-state; 0.5.35 works.
 
+## Migration from v1.x to v2.x
+
+Version 2.0 is a security release. Upgrade promptly: in 1.x, mutating what `read()` returned in place could leak one request's data into later requests (see [Security](#security)).
+
+Most apps upgrade without code changes. The changes that can need attention:
+
+| Change                                                                                  | Who is affected                                                                                   | What to do                                                                                                                                                                    |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `patch()` and `api.patch()` take `Pick<T, K>` instead of `Partial<T>`                   | Code passing a `Partial<T>` **variable**, or a value that can be `undefined` for a required field | Pass an object literal, or use `update((state) => ({ ...state, ...changes }))`. A compile error on `undefined` means the old code could store `undefined` in a required field |
+| Non-object states are rejected with a `TypeError`                                       | Code that stored `null`, `undefined` or a primitive (often from unvalidated `JSON.parse`)         | Validate input before storing it                                                                                                                                              |
+| A literal `initial` is copied for each request and each `reset()`                       | Code relying on `read()` returning the exact `initial` object                                     | Compare values, not references                                                                                                                                                |
+| Keyed persistent stores don't share state with rsc-state 1.x copies in the same process | Apps that load two rsc-state versions                                                             | Deduplicate the dependency                                                                                                                                                    |
+
+```typescript
+// Before (1.x): compiles, and stores undefined when there is no session
+await userStore.patch({ userId: session?.userId });
+
+// After (2.x): be explicit about the signed-out value
+await userStore.patch({ userId: session?.userId ?? null });
+```
+
 ## Migration from v0.x to v1.x
 
 Version 1.0 introduced an async-first architecture. All state-mutating methods return promises.
@@ -571,7 +592,7 @@ rsc-state runs only on the server, but the state it holds often comes from reque
 - **Authorize Server Actions.** They are public HTTP endpoints. Check the caller before mutating a persistent store, since that change reaches every visitor.
 - **Validate in your adapter's `read()`.** Stored data goes straight into state without passing through middleware, so anything that edits your storage (another service, a manual fix, an attacker with database access) controls what the store holds. Return `null` for anything that doesn't match your state shape.
 - **Keep `key` values static.** Every store with the same key shares one state, and keys are never released. Deriving keys from user input would mix tenants and grow memory without bound.
-- **Bound async work.** Mutations on a store run one at a time, so an adapter call or middleware that never settles blocks every later mutation, which for a persistent store means every user. Configure timeouts in your storage client.
+- **Bound async work.** Mutations on a store run one at a time, so an adapter call or middleware that never settles blocks every later mutation, which for a persistent store means every user. Configure timeouts in your storage client. If a queued mutation waits more than 10 seconds, rsc-state logs a warning naming the likely causes, including the self-deadlock of awaiting the same store from its own middleware or batch callback.
 - **Render user-dependent pages dynamically.** If a page initializes a store from per-user data, make sure the framework doesn't cache its output for everyone (reading cookies makes Next.js render dynamically; Waku pages need `render: "dynamic"`).
 
 ## Performance
