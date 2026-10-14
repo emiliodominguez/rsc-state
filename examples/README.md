@@ -4,13 +4,15 @@ This folder contains example applications demonstrating `rsc-state` with Next.js
 
 ## Available Examples
 
-| Example                                 | Next.js Version | Description                                                    |
-| --------------------------------------- | --------------- | -------------------------------------------------------------- |
-| [next-14](./next-14/)                   | 14.x            | Basic usage with sync `cookies()` API                          |
-| [next-15](./next-15/)                   | 15.x            | Basic usage with async `cookies()` API                         |
-| [next-16](./next-16/)                   | 16.x            | Basic usage with latest Next.js                                |
-| [next-16-adapters](./next-16-adapters/) | 16.x            | Storage adapters for persistent state (file, memory)           |
-| [waku](./waku/)                         | Waku 1.0 RC     | Request-scoped store from route params, keyed persistent store |
+| Example                                 | Next.js Version | Description                                                             |
+| --------------------------------------- | --------------- | ----------------------------------------------------------------------- |
+| [next-14](./next-14/)                   | 14.x            | Basic usage with sync `cookies()` API (local reference only, see below) |
+| [next-15](./next-15/)                   | 15.x            | Basic usage with async `cookies()` API                                  |
+| [next-16](./next-16/)                   | 16.x            | Basic usage with latest Next.js                                         |
+| [next-16-adapters](./next-16-adapters/) | 16.x            | Storage adapters for persistent state (file, memory)                    |
+| [waku](./waku/)                         | Waku 1.0 RC     | Request-scoped store from route params, keyed persistent store          |
+
+> **Next.js 14 is for local reference only.** 14.2.35 is the last 14.x release, and `npm audit` reports 23 advisories against it (2 critical remote code execution, several high-severity denial of service and request forgery issues), all fixed only in Next.js 15.5.24 and later. Never deploy it; use the Next.js 15 or 16 examples as a starting point.
 
 ## Running an Example
 

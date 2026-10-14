@@ -20,9 +20,14 @@
 
 body {
 	margin: 0;
-	font-family: system-ui, -apple-system, sans-serif;
+	font-family:
+		system-ui,
+		-apple-system,
+		sans-serif;
 	min-height: 100vh;
-	transition: background-color 0.2s, color 0.2s;
+	transition:
+		background-color 0.2s,
+		color 0.2s;
 }
 
 body.light {
@@ -54,7 +59,9 @@ h1 {
 	padding: 1.5rem;
 	border-radius: 8px;
 	margin-bottom: 1.5rem;
-	transition: background-color 0.2s, border-color 0.2s;
+	transition:
+		background-color 0.2s,
+		border-color 0.2s;
 }
 
 body.light .section {
@@ -123,7 +130,9 @@ body.dark .setting-row {
 	border-radius: 4px;
 	cursor: pointer;
 	font-size: 0.875rem;
-	transition: opacity 0.15s, transform 0.1s;
+	transition:
+		opacity 0.15s,
+		transform 0.1s;
 }
 
 .btn:hover {

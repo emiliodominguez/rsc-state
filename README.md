@@ -551,13 +551,13 @@ Where it comes from:
 
 Working examples:
 
-| Version               | Directory                                                  | Notes                                    |
-| --------------------- | ---------------------------------------------------------- | ---------------------------------------- |
-| Next.js 14            | [`examples/next-14`](./examples/next-14)                   | Synchronous `cookies()` API              |
-| Next.js 15            | [`examples/next-15`](./examples/next-15)                   | Async `cookies()` API, Turbopack         |
-| Next.js 16            | [`examples/next-16`](./examples/next-16)                   | Async `cookies()` API, Turbopack default |
-| Next.js 16 + Adapters | [`examples/next-16-adapters`](./examples/next-16-adapters) | Storage adapters with file persistence   |
-| Waku 1.0              | [`examples/waku`](./examples/waku)                         | Route params, keyed persistent store     |
+| Version               | Directory                                                  | Notes                                                                            |
+| --------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Next.js 14            | [`examples/next-14`](./examples/next-14)                   | Synchronous `cookies()` API; local reference only (unpatched Next 14 advisories) |
+| Next.js 15            | [`examples/next-15`](./examples/next-15)                   | Async `cookies()` API, Turbopack                                                 |
+| Next.js 16            | [`examples/next-16`](./examples/next-16)                   | Async `cookies()` API, Turbopack default                                         |
+| Next.js 16 + Adapters | [`examples/next-16-adapters`](./examples/next-16-adapters) | Storage adapters with file persistence                                           |
+| Waku 1.0              | [`examples/waku`](./examples/waku)                         | Route params, keyed persistent store                                             |
 
 ```bash
 cd examples/next-15  # or next-14, next-16, next-16-adapters, waku
