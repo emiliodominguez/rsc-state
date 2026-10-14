@@ -781,3 +781,22 @@ describe("keyed persistent stores", () => {
 		expect(firstDefinition.read().count).toEqual(2);
 	});
 });
+
+describe("hydration debug logging", () => {
+	it("should log hydrated state when debug is enabled", async () => {
+		// Given
+		const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+		const store = createServerStore({
+			debug: true,
+			storage: "persistent",
+			initial: { count: 0 },
+			adapter: { read: () => ({ count: 3 }), write: vi.fn() },
+		});
+
+		// When
+		await store.hydrate();
+
+		// Then
+		expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining("Hydrated"), { count: 3 });
+	});
+});
