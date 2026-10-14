@@ -1,24 +1,21 @@
 # Examples
 
-This folder contains example applications demonstrating `rsc-state` with Next.js 14, 15 and 16, and with Waku.
+This folder contains example applications demonstrating `rsc-state` with Next.js 15 and 16, and with Waku.
 
 ## Available Examples
 
-| Example                                 | Next.js Version | Description                                                             |
-| --------------------------------------- | --------------- | ----------------------------------------------------------------------- |
-| [next-14](./next-14/)                   | 14.x            | Basic usage with sync `cookies()` API (local reference only, see below) |
-| [next-15](./next-15/)                   | 15.x            | Basic usage with async `cookies()` API                                  |
-| [next-16](./next-16/)                   | 16.x            | Basic usage with latest Next.js                                         |
-| [next-16-adapters](./next-16-adapters/) | 16.x            | Storage adapters for persistent state (file, memory)                    |
-| [waku](./waku/)                         | Waku 1.0 RC     | Request-scoped store from route params, keyed persistent store          |
-
-> **Next.js 14 is for local reference only.** 14.2.35 is the last 14.x release, and `npm audit` reports 23 advisories against it (2 critical remote code execution, several high-severity denial of service and request forgery issues), all fixed only in Next.js 15.5.24 and later. Never deploy it; use the Next.js 15 or 16 examples as a starting point.
+| Example                                 | Next.js Version | Description                                                    |
+| --------------------------------------- | --------------- | -------------------------------------------------------------- |
+| [next-15](./next-15/)                   | 15.x            | Basic usage with async `cookies()` API                         |
+| [next-16](./next-16/)                   | 16.x            | Basic usage with latest Next.js                                |
+| [next-16-adapters](./next-16-adapters/) | 16.x            | Storage adapters for persistent state (file, memory)           |
+| [waku](./waku/)                         | Waku 1.0 RC     | Request-scoped store from route params, keyed persistent store |
 
 ## Running an Example
 
 ```bash
 # Navigate to the example directory
-cd examples/next-14  # or next-15/16
+cd examples/next-15  # or next-16, next-16-adapters, waku
 
 # Install dependencies
 npm install
@@ -78,24 +75,7 @@ export const userStore = createServerStore({
 The examples use React's `cache()` API to ensure user state is initialized once per request:
 
 ```typescript
-// Next.js 14 (sync cookies(), async store)
-export const getUser = cache(async () => {
-	const userCookie = cookies().get(USER_COOKIE);
-
-	if (userCookie) {
-		await userStore.initialize(JSON.parse(userCookie.value));
-	}
-
-	return userStore.read();
-});
-
-// Components must await it
-export async function Header() {
-	const user = await getUser();
-	// ...
-}
-
-// Next.js 15+ (async)
+// Next.js 15+ (async cookies())
 export const getUser = cache(async () => {
 	const cookieStore = await cookies();
 	const userCookie = cookieStore.get(USER_COOKIE);

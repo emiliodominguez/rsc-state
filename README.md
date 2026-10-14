@@ -30,25 +30,25 @@ npm install rsc-state
 
 ## Compatibility
 
-| Requirement | Supported                                            | Verified with                                                       |
-| ----------- | ---------------------------------------------------- | ------------------------------------------------------------------- |
-| React       | 19.x; 18.3 only via a framework-bundled React canary | 19.3.0; Next.js 14 (bundled `18.3.0-canary`)                        |
-| TypeScript  | Inferred types, no generics                          | 6.0 and 7.0 (`skipLibCheck: false`, `nodenext` and `bundler` modes) |
-| Runtime     | Any RSC server runtime                               | Node.js 22; the library uses no Node-specific APIs                  |
-| Modules     | ESM and CommonJS                                     | `publint` and `arethetypeswrong` clean                              |
+| Requirement | Supported                                 | Verified with                                                        |
+| ----------- | ----------------------------------------- | -------------------------------------------------------------------- |
+| React       | 19.x (persistent stores also run on 18.3) | 19.3.0; 18.3.1 for persistent stores and the missing-`cache()` error |
+| TypeScript  | Inferred types, no generics               | 6.0 and 7.0 (`skipLibCheck: false`, `nodenext` and `bundler` modes)  |
+| Runtime     | Any RSC server runtime                    | Node.js 22; the library uses no Node-specific APIs                   |
+| Modules     | ESM and CommonJS                          | `publint` and `arethetypeswrong` clean                               |
 
-Request-scoped stores need React's `cache()`. Stable React 18 doesn't export it, so on React 18 they only work inside frameworks that render with a bundled React canary, such as the Next.js 14 App Router. Elsewhere on React 18, creating a request-scoped store throws an error explaining this; persistent stores work on any React version.
+Request-scoped stores need React's `cache()`, which ships in React 19. Stable React 18 doesn't export it: there, creating a request-scoped store throws an error explaining this, while persistent stores keep working.
 
 ### Frameworks
 
 Request-scoped stores work in any framework that renders React Server Components, because they rely only on React's `cache`. Each framework below was verified with a production build and concurrent requests for different users: every response rendered only its own user's state.
 
-| Framework      | Verified version                                | Framework RSC status | rsc-state                                                              |
-| -------------- | ----------------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
-| Next.js        | 14.2.35 (bundled React canary), 15.5.27, 16.4.0 | Stable               | ✅ Supported ([examples](#examples))                                   |
-| Waku           | 1.0.0-rc.3                                      | Release candidate    | ✅ Supported ([example](./examples/waku))                              |
-| React Router   | 8.4.0, RSC framework mode                       | Experimental         | ✅ Works; initialize in `ServerComponent`, not in `loader`             |
-| TanStack Start | 1.169.1 with `rsc.enabled`                      | Experimental         | ✅ Works; initialize inside the tree passed to `renderServerComponent` |
+| Framework      | Verified version           | Framework RSC status | rsc-state                                                              |
+| -------------- | -------------------------- | -------------------- | ---------------------------------------------------------------------- |
+| Next.js        | 15.5.27, 16.4.0            | Stable               | ✅ Supported ([examples](#examples))                                   |
+| Waku           | 1.0.0-rc.3                 | Release candidate    | ✅ Supported ([example](./examples/waku))                              |
+| React Router   | 8.4.0, RSC framework mode  | Experimental         | ✅ Works; initialize in `ServerComponent`, not in `loader`             |
+| TanStack Start | 1.169.1 with `rsc.enabled` | Experimental         | ✅ Works; initialize inside the tree passed to `renderServerComponent` |
 
 React Router 8.4.0's RSC build fails with `@vitejs/plugin-rsc` 0.5.36 and later ("Vite RSC assets manifest not found"), independently of rsc-state; 0.5.35 works.
 
@@ -551,16 +551,15 @@ Where it comes from:
 
 Working examples:
 
-| Version               | Directory                                                  | Notes                                                                            |
-| --------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Next.js 14            | [`examples/next-14`](./examples/next-14)                   | Synchronous `cookies()` API; local reference only (unpatched Next 14 advisories) |
-| Next.js 15            | [`examples/next-15`](./examples/next-15)                   | Async `cookies()` API, Turbopack                                                 |
-| Next.js 16            | [`examples/next-16`](./examples/next-16)                   | Async `cookies()` API, Turbopack default                                         |
-| Next.js 16 + Adapters | [`examples/next-16-adapters`](./examples/next-16-adapters) | Storage adapters with file persistence                                           |
-| Waku 1.0              | [`examples/waku`](./examples/waku)                         | Route params, keyed persistent store                                             |
+| Version               | Directory                                                  | Notes                                    |
+| --------------------- | ---------------------------------------------------------- | ---------------------------------------- |
+| Next.js 15            | [`examples/next-15`](./examples/next-15)                   | Async `cookies()` API, Turbopack         |
+| Next.js 16            | [`examples/next-16`](./examples/next-16)                   | Async `cookies()` API, Turbopack default |
+| Next.js 16 + Adapters | [`examples/next-16-adapters`](./examples/next-16-adapters) | Storage adapters with file persistence   |
+| Waku 1.0              | [`examples/waku`](./examples/waku)                         | Route params, keyed persistent store     |
 
 ```bash
-cd examples/next-15  # or next-14, next-16, next-16-adapters, waku
+cd examples/next-15  # or next-16, next-16-adapters, waku
 npm install
 npm run dev
 ```

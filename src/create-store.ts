@@ -248,7 +248,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 		if (typeof reactCache !== "function") {
 			throw new Error(
 				`${logPrefix} Request-scoped stores require React's cache(), which this React build does not provide. ` +
-					"It is available in React 19 and in frameworks that bundle a React canary (such as the Next.js 14 App Router). " +
+					"It is available in React 19 and in the React canary builds some frameworks bundle. " +
 					'Upgrade to React 19, or use storage: "persistent" for state that is not request-specific.',
 			);
 		}
