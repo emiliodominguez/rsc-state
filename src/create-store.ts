@@ -1,6 +1,91 @@
 import { cache } from "react";
 
-import type { BatchApi, OperationType, ServerStore, StorageMode, StoreConfig } from "./types";
+import type { BatchApi, EmptyDerivedState, HydrateOptions, OperationType, ServerStore, StorageMode, StoreConfig, StoreState } from "./types";
+
+/**
+ * A committed state change, handed to lifecycle callbacks once the mutation lock is released.
+ */
+interface StateTransition<T> {
+	previousState: T;
+	nextState: T;
+}
+
+/**
+ * Mutable container backing one store scope: a single request in "request" mode,
+ * or the whole process in "persistent" mode.
+ */
+interface StoreInstance<T, F> {
+	/** Committed base state. Replaced, never mutated in place. */
+	state: T;
+
+	/** Whether `initialize()` ran or the adapter supplied stored state. */
+	initialized: boolean;
+
+	/** Whether the storage adapter has been read. Always true when no adapter is configured. */
+	hydrated: boolean;
+
+	/** Base state reference that `fullState` was computed from. */
+	derivedSourceState: T | undefined;
+
+	/** Memoized base + derived state, returned as-is while `state` is unchanged. */
+	fullState: F;
+
+	/** Tail of the mutation queue, or null when no mutation is in flight. */
+	pendingMutation: Promise<void> | null;
+}
+
+/**
+ * Debug log label for each operation type.
+ */
+const OPERATION_LOG_LABELS: Record<OperationType, string> = {
+	initialize: "Initialized",
+	update: "Updated",
+	set: "Set",
+	patch: "Patched",
+	reset: "Reset",
+	batch: "Batch updated",
+};
+
+/**
+ * Detects thenables so synchronous middleware, adapters and callbacks can run without
+ * yielding to the microtask queue. This lets fully synchronous stores commit mutations
+ * in the same tick they are requested.
+ *
+ * @param value - Value that may or may not be a promise
+ * @returns True when the value exposes a callable `then` method
+ */
+function isPromiseLike<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
+	return (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as PromiseLike<V>).then === "function";
+}
+
+/**
+ * Normalizes any thrown value into an Error instance so callbacks receive a consistent type.
+ *
+ * @param thrownValue - Value caught in a catch clause
+ * @returns The original Error, or a new Error wrapping the stringified value
+ */
+function toError(thrownValue: unknown): Error {
+	return thrownValue instanceof Error ? thrownValue : new Error(String(thrownValue));
+}
+
+/**
+ * Shallow-merges a partial state into a base state, preserving the base reference when
+ * every provided value is already identical. Keeping the reference lets the store detect
+ * no-op patches and skip middleware, adapter writes, callbacks and derive recomputation.
+ *
+ * @param state - Current state
+ * @param partialState - Properties to merge
+ * @returns A new merged state, or the original state when nothing changed
+ */
+function mergePartialState<T extends object>(state: T, partialState: Partial<T>): T {
+	for (const key in partialState) {
+		if (!(key in state) || !Object.is(state[key], partialState[key])) {
+			return { ...state, ...partialState };
+		}
+	}
+
+	return state;
+}
 
 /**
  * Creates a server store for managing state in React Server Components.
@@ -11,30 +96,28 @@ import type { BatchApi, OperationType, ServerStore, StorageMode, StoreConfig } f
  * - `"persistent"`: State persists across requests using module-level storage.
  *   Shared across ALL users. Only use for global app state.
  *
- * All state-mutating methods are async to support middleware, storage adapters,
- * and async lifecycle callbacks.
+ * Mutations on a store instance are serialized, so concurrent calls (for example from
+ * `Promise.all`) never lose each other's changes, even with async middleware or adapters.
+ * When no middleware or adapter needs to await anything, mutations commit synchronously.
  *
  * @param configuration - Store configuration with initial state, middleware, adapter, and callbacks
- * @returns Store instance with async methods to initialize, read, and update state
+ * @returns Store instance with async methods to initialize, hydrate, and update state, and sync methods to read it
  *
  * @example
  * Request-scoped store (safe for user data)
  * ```typescript
  * const userStore = createServerStore({
- *   initial: { userId: null, userName: '' },
+ *   initial: { userId: null as string | null, userName: '' },
  *   derive: (state) => ({
  *     isAuthenticated: state.userId !== null
  *   }),
- *   middleware: [
- *     (operation) => {
- *       console.log(`[${operation.type}]`, operation.nextState);
- *       return operation.nextState;
- *     }
- *   ]
  * });
  *
  * // In layout
  * await userStore.initialize({ userId: "123", userName: "John" });
+ *
+ * // Anywhere below: { userId, userName, isAuthenticated } is fully typed
+ * const { isAuthenticated } = userStore.read();
  * ```
  *
  * @example
@@ -51,42 +134,44 @@ import type { BatchApi, OperationType, ServerStore, StorageMode, StoreConfig } f
  *     isDarkMode: state.theme === "dark"
  *   })
  * });
+ *
+ * // Load persisted state before the first read
+ * const settings = await settingsStore.hydrate();
  * ```
  */
-export function createServerStore<T extends Record<string, unknown>, D extends Record<string, unknown> = Record<string, never>>(
-	configuration: StoreConfig<T>,
-): ServerStore<T, D> {
+export function createServerStore<T extends object, D extends object = EmptyDerivedState>(configuration: StoreConfig<T, D>): ServerStore<T, D> {
 	type State = T;
-	type DerivedState = D;
-	type FullState = State & DerivedState;
+	type FullState = StoreState<T, D>;
+	type Instance = StoreInstance<State, FullState>;
 
 	const storageMode: StorageMode = configuration.storage ?? "request";
+	const isPersistent = storageMode === "persistent";
+	const isDebugEnabled = configuration.debug === true;
+	const logPrefix = `[rsc-state:${storageMode}]`;
+	const middlewareChain = configuration.middleware ?? [];
+	const deriveFunction = configuration.derive;
 
-	/**
-	 * Internal cache instance structure that holds the current state,
-	 * tracks initialization, and caches derived state for memoization.
-	 */
-	interface CacheInstance {
-		state: State;
-		initialized: boolean;
-		lastDerivedBaseState: State | null;
-		cachedDerivedState: DerivedState | null;
+	// Adapters only make sense for state that outlives a request
+	const adapter = isPersistent ? configuration.adapter : undefined;
+
+	if (isDebugEnabled && !isPersistent && configuration.adapter) {
+		console.warn(`${logPrefix} Storage adapters are ignored in "request" mode. Use storage: "persistent" to enable them.`);
 	}
 
 	/**
 	 * Module-level storage for persistent mode.
 	 * WARNING: Shared across all users and requests.
 	 */
-	let persistentInstance: CacheInstance | null = null;
+	let persistentInstance: Instance | null = null;
 
 	/**
-	 * Tracks whether the persistent instance has been initialized from the adapter.
-	 * Prevents multiple adapter reads on concurrent access.
+	 * In-flight adapter read, shared by every caller that needs hydration so the adapter
+	 * is only read once. Cleared once settled so a failed read can be retried.
 	 */
-	let persistentInstanceInitializing: Promise<CacheInstance> | null = null;
+	let hydrationInFlight: Promise<void> | null = null;
 
 	/**
-	 * Gets the initial state from configuration.
+	 * Resolves the initial state from configuration, calling the factory when one is provided.
 	 *
 	 * @returns Initial state value
 	 */
@@ -95,474 +180,493 @@ export function createServerStore<T extends Record<string, unknown>, D extends R
 	}
 
 	/**
-	 * React cache instance for request-scoped mode.
-	 * Cache is automatically invalidated between requests, ensuring isolation.
+	 * Builds a fresh store instance seeded with the initial state.
 	 *
-	 * @returns Cache instance for current request
+	 * @returns New store instance
 	 */
-	const getRequestScopedInstance = cache((): CacheInstance => {
+	function createInstance(): Instance {
+		const state = getInitialState();
+
 		return {
-			state: getInitialState(),
+			state,
 			initialized: false,
-			lastDerivedBaseState: null,
-			cachedDerivedState: null,
+			hydrated: adapter === undefined,
+			derivedSourceState: undefined,
+			fullState: state as FullState,
+			pendingMutation: null,
 		};
-	});
-
-	/**
-	 * Gets the persistent instance, creating it if needed.
-	 * Reads initial state from adapter if configured.
-	 *
-	 * @returns Promise resolving to persistent cache instance
-	 */
-	async function getPersistentInstance(): Promise<CacheInstance> {
-		if (persistentInstance) {
-			return persistentInstance;
-		}
-
-		// If already initializing, wait for that to complete
-		if (persistentInstanceInitializing) {
-			return persistentInstanceInitializing;
-		}
-
-		// Start initialization
-		persistentInstanceInitializing = (async (): Promise<CacheInstance> => {
-			let adapterState: State | null = null;
-
-			if (configuration.adapter) {
-				adapterState = await configuration.adapter.read();
-			}
-
-			persistentInstance = {
-				state: adapterState ?? getInitialState(),
-				initialized: adapterState !== null,
-				lastDerivedBaseState: null,
-				cachedDerivedState: null,
-			};
-
-			return persistentInstance;
-		})();
-
-		return persistentInstanceInitializing;
 	}
 
+	// React cache invalidates automatically per request, ensuring
+	// no state leakage between different user requests
+	const getRequestScopedInstance = cache(createInstance);
+
 	/**
-	 * Gets the persistent instance synchronously.
-	 * Used by read() and select() which must remain synchronous.
-	 * Falls back to initial state if adapter hasn't been read yet.
+	 * Returns the process-wide instance used in persistent mode, creating it on first access.
 	 *
-	 * @returns Persistent cache instance
+	 * @returns Persistent store instance
 	 */
-	function getPersistentInstanceSync(): CacheInstance {
-		persistentInstance ??= {
-			state: getInitialState(),
-			initialized: false,
-			lastDerivedBaseState: null,
-			cachedDerivedState: null,
-		};
+	function getPersistentInstance(): Instance {
+		persistentInstance ??= createInstance();
 
 		return persistentInstance;
 	}
 
+	const getInstance = isPersistent ? getPersistentInstance : getRequestScopedInstance;
+
 	/**
-	 * Gets the appropriate cache instance based on storage mode.
-	 * For async operations that need adapter support.
+	 * Applies state loaded from the adapter. A null or undefined value means nothing has been
+	 * stored yet, in which case the current (initial) state is kept.
 	 *
-	 * @returns Promise resolving to cache instance for current storage mode
+	 * @param instance - Instance to update
+	 * @param storedState - Value returned by the adapter
+	 * @returns void
 	 */
-	async function getCacheInstanceAsync(): Promise<CacheInstance> {
-		return storageMode === "persistent" ? getPersistentInstance() : getRequestScopedInstance();
+	function applyStoredState(instance: Instance, storedState: State | null | undefined): void {
+		if (storedState !== null && storedState !== undefined) {
+			instance.state = storedState;
+			instance.initialized = true;
+		}
+
+		instance.hydrated = true;
 	}
 
 	/**
-	 * Gets the appropriate cache instance synchronously.
-	 * Used by read() and select() which must remain synchronous.
+	 * Starts (or joins) the adapter read for an instance that has not been hydrated yet.
+	 * Returns null when no work is needed so callers can stay on the synchronous path.
 	 *
-	 * @returns Cache instance for current storage mode
+	 * @param instance - Instance that needs adapter state
+	 * @returns Promise for the in-flight read, or null when already hydrated
 	 */
-	function getCacheInstanceSync(): CacheInstance {
-		return storageMode === "persistent" ? getPersistentInstanceSync() : getRequestScopedInstance();
+	function ensureHydrated(instance: Instance): Promise<void> | null {
+		if (instance.hydrated || adapter === undefined) {
+			return null;
+		}
+
+		hydrationInFlight ??= (async (): Promise<void> => {
+			try {
+				applyStoredState(instance, await adapter.read());
+
+				if (isDebugEnabled) {
+					console.log(`${logPrefix} Hydrated:`, instance.state);
+				}
+			} finally {
+				hydrationInFlight = null;
+			}
+		})();
+
+		return hydrationInFlight;
 	}
 
 	/**
-	 * Writes state to the storage adapter if configured and in persistent mode.
+	 * Runs a task once every previously queued mutation on the instance has settled.
+	 * When the queue is idle the task starts immediately, which keeps synchronous
+	 * mutations synchronous.
 	 *
-	 * @param state - State to persist
-	 * @returns Promise that resolves when write is complete
+	 * @param instance - Instance whose mutation queue to join
+	 * @param task - Async task to run exclusively
+	 * @returns Promise resolving to the task's result
 	 */
-	async function writeToAdapter(state: State): Promise<void> {
-		if (storageMode === "persistent" && configuration.adapter) {
-			await configuration.adapter.write(state);
+	function runExclusive<R>(instance: Instance, task: () => Promise<R>): Promise<R> {
+		const pendingMutation = instance.pendingMutation;
+		const result = pendingMutation === null ? task() : pendingMutation.then(task);
+		const settled: Promise<void> = result.then(releaseLock, releaseLock);
+
+		/**
+		 * Marks the queue as idle if no other mutation was queued behind this one.
+		 *
+		 * @returns void
+		 */
+		function releaseLock(): void {
+			if (instance.pendingMutation === settled) {
+				instance.pendingMutation = null;
+			}
+		}
+
+		instance.pendingMutation = settled;
+
+		return result;
+	}
+
+	/**
+	 * Passes a proposed state through the middleware chain in order.
+	 * Rejects null/undefined results, which almost always mean a middleware forgot to return.
+	 *
+	 * @param operationType - Operation that produced the proposed state
+	 * @param previousState - Committed state before the operation
+	 * @param proposedState - State produced by the operation
+	 * @returns Promise resolving to the state after all middleware ran
+	 */
+	async function runMiddleware(operationType: OperationType, previousState: State, proposedState: State): Promise<State> {
+		let currentState = proposedState;
+		let middlewareIndex = 0;
+
+		for (const middlewareFunction of middlewareChain) {
+			const result = middlewareFunction({ type: operationType, previousState, nextState: currentState });
+			// Typed as unknown because a misbehaving middleware can return anything at runtime
+			const resolvedState: unknown = isPromiseLike(result) ? await result : result;
+
+			if (resolvedState === null || resolvedState === undefined) {
+				throw new TypeError(
+					`${logPrefix} Middleware at index ${middlewareIndex} returned ${resolvedState === null ? "null" : "undefined"} for "${operationType}". Return operation.nextState or a new state object.`,
+				);
+			}
+
+			currentState = resolvedState as State;
+			middlewareIndex++;
+		}
+
+		return currentState;
+	}
+
+	/**
+	 * Core mutation pipeline, run while holding the instance's mutation lock:
+	 * hydrate → produce → no-op check → middleware → adapter write → commit.
+	 *
+	 * The adapter is written before the in-memory commit so a failed write leaves the
+	 * store unchanged instead of diverging from storage.
+	 *
+	 * @param instance - Instance to mutate
+	 * @param operationType - Operation being performed
+	 * @param produceNextState - Computes the proposed state from the committed state
+	 * @returns Promise resolving to the committed transition, or null for a no-op
+	 */
+	async function applyTransition(
+		instance: Instance,
+		operationType: OperationType,
+		produceNextState: (previousState: State) => State | Promise<State>,
+	): Promise<StateTransition<State> | null> {
+		const hydration = ensureHydrated(instance);
+
+		if (hydration !== null) {
+			await hydration;
+		}
+
+		const previousState = instance.state;
+		const produced = produceNextState(previousState);
+		const proposedState = isPromiseLike(produced) ? await produced : produced;
+
+		// Initialize and reset are explicit lifecycle events and always commit
+		const skipsUnchangedState = operationType !== "initialize" && operationType !== "reset";
+
+		if (skipsUnchangedState && proposedState === previousState) {
+			return null;
+		}
+
+		const nextState = middlewareChain.length === 0 ? proposedState : await runMiddleware(operationType, previousState, proposedState);
+
+		// Middleware returning previousState vetoes the transition
+		if (skipsUnchangedState && nextState === previousState) {
+			return null;
+		}
+
+		if (adapter !== undefined) {
+			const pendingWrite = adapter.write(nextState);
+
+			if (isPromiseLike(pendingWrite)) {
+				await pendingWrite;
+			}
+		}
+
+		instance.state = nextState;
+
+		if (operationType === "initialize") {
+			instance.initialized = true;
+		}
+
+		if (isDebugEnabled) {
+			console.log(`${logPrefix} ${OPERATION_LOG_LABELS[operationType]}:`, nextState);
+		}
+
+		return { previousState, nextState };
+	}
+
+	/**
+	 * Invokes the lifecycle callback that matches a committed operation.
+	 *
+	 * @param operationType - Operation that was committed
+	 * @param transition - Committed state change
+	 * @returns The callback's result, so async callbacks can be awaited
+	 */
+	function notifyLifecycle(operationType: OperationType, transition: StateTransition<State>): void | Promise<void> {
+		switch (operationType) {
+			case "initialize":
+				return configuration.onInitialize?.(transition.nextState);
+			case "reset":
+				return configuration.onReset?.(transition.previousState, transition.nextState);
+			default:
+				return configuration.onUpdate?.(transition.previousState, transition.nextState);
 		}
 	}
 
 	/**
-	 * Applies middleware chain to a state operation.
-	 * Each middleware can transform the state before it's applied.
+	 * Queues a mutation and runs its lifecycle callback after the lock is released, so
+	 * callbacks may safely call mutating methods of this same store.
 	 *
-	 * @param operationType - Type of operation being performed
-	 * @param previousState - State before the operation
-	 * @param nextState - State after the operation (before middleware)
-	 * @returns Promise resolving to final state after middleware transformations
+	 * @param operationType - Operation being performed
+	 * @param produceNextState - Computes the proposed state from the committed state
+	 * @returns Promise that resolves once the mutation and its callback complete
 	 */
-	async function applyMiddleware(operationType: OperationType, previousState: State, nextState: State): Promise<State> {
-		if (!configuration.middleware?.length) {
-			return nextState;
+	async function mutate(operationType: OperationType, produceNextState: (previousState: State) => State | Promise<State>): Promise<void> {
+		const instance = getInstance();
+		const transition = await runExclusive(instance, () => applyTransition(instance, operationType, produceNextState));
+
+		if (transition !== null) {
+			await notifyLifecycle(operationType, transition);
 		}
-
-		let finalState = nextState;
-
-		for (const middlewareFunction of configuration.middleware) {
-			finalState = await middlewareFunction({
-				type: operationType,
-				previousState,
-				nextState: finalState,
-			});
-		}
-
-		return finalState;
 	}
 
 	/**
-	 * Computes derived state by applying the derive function to base state.
-	 * Uses memoization to avoid recalculating when base state hasn't changed.
-	 * Handles errors gracefully by calling onError callback if configured.
+	 * Reports a derive failure without throwing from a synchronous read. Failures inside
+	 * the user's onError callback are logged rather than surfacing as unhandled rejections.
 	 *
-	 * @param baseState - Current base state from store
-	 * @param cacheInstance - Cache instance for memoization storage
-	 * @returns Combined base state and derived state
+	 * @param error - Error thrown by the derive function
+	 * @param baseState - State the derive function was called with
+	 * @returns void
 	 */
-	function computeDerivedState(baseState: State, cacheInstance: CacheInstance): FullState {
-		if (!configuration.derive) {
-			return baseState as FullState;
+	function reportDeriveError(error: Error, baseState: State): void {
+		if (isDebugEnabled) {
+			console.warn(`${logPrefix} Error in derive function:`, error.message);
 		}
 
-		// Return cached derived state if base state hasn't changed (reference equality)
-		if (baseState === cacheInstance.lastDerivedBaseState && cacheInstance.cachedDerivedState !== null) {
-			return { ...baseState, ...cacheInstance.cachedDerivedState } as FullState;
+		if (!configuration.onError) {
+			return;
 		}
 
 		try {
-			const derivedState = configuration.derive(baseState) as DerivedState;
+			const result = configuration.onError(error, { method: "derive", state: baseState });
 
-			// Cache the computed derived state
-			cacheInstance.lastDerivedBaseState = baseState;
-			cacheInstance.cachedDerivedState = derivedState;
-
-			return { ...baseState, ...derivedState } as FullState;
-		} catch (thrownError: unknown) {
-			const errorInstance = thrownError instanceof Error ? thrownError : new Error(String(thrownError));
-
-			// Fire-and-forget for async onError - we can't await in this sync function
-			void configuration.onError?.(errorInstance, { method: "derive", state: baseState });
-
-			if (configuration.debug) {
-				console.warn(`[rsc-state:${storageMode}] Error in derive function:`, errorInstance.message);
+			if (isPromiseLike(result)) {
+				void result.then(undefined, reportCallbackFailure);
 			}
-
-			// Return base state without derived properties on error
-			return baseState as FullState;
+		} catch (callbackError: unknown) {
+			reportCallbackFailure(callbackError);
 		}
 	}
 
 	/**
-	 * Invalidates the memoization cache, forcing derived state to be recalculated
-	 * on the next read. Called when base state changes.
+	 * Logs a failure raised by the onError callback itself.
 	 *
-	 * @param cacheInstance - Cache instance to invalidate
+	 * @param callbackError - Value thrown or rejected by onError
+	 * @returns void
 	 */
-	function invalidateDerivedCache(cacheInstance: CacheInstance): void {
-		cacheInstance.lastDerivedBaseState = null;
-		cacheInstance.cachedDerivedState = null;
+	function reportCallbackFailure(callbackError: unknown): void {
+		console.error(`${logPrefix} onError callback failed:`, callbackError);
 	}
 
 	/**
-	 * Initializes the store with starting values.
-	 * For request-scoped: called once per request in root layout.
-	 * For persistent: called once on first access or to reset values.
-	 * Runs middleware and triggers onInitialize callback.
+	 * Returns base state merged with derived state, recomputing only when the base state
+	 * reference changed. The merged object is cached on the instance, so repeated reads
+	 * return the same reference without allocating. A failing derive is also cached, which
+	 * reports each failing state once instead of on every read.
+	 *
+	 * @param instance - Instance to read from
+	 * @returns Combined base and derived state
+	 */
+	function resolveFullState(instance: Instance): FullState {
+		const baseState = instance.state;
+
+		if (deriveFunction === undefined) {
+			return baseState as FullState;
+		}
+
+		if (instance.derivedSourceState !== baseState) {
+			try {
+				instance.fullState = { ...baseState, ...deriveFunction(baseState) };
+			} catch (thrownValue: unknown) {
+				instance.fullState = baseState as FullState;
+				reportDeriveError(toError(thrownValue), baseState);
+			}
+
+			instance.derivedSourceState = baseState;
+		}
+
+		return instance.fullState;
+	}
+
+	/**
+	 * Emits debug warnings for reads that will not see the expected state.
+	 *
+	 * @param instance - Instance being read
+	 * @returns void
+	 */
+	function warnOnUnpreparedRead(instance: Instance): void {
+		if (!instance.hydrated) {
+			console.warn(`${logPrefix} Reading before hydrate(); returning initial state. Await store.hydrate() before the first read.`);
+		} else if (!isPersistent && !instance.initialized) {
+			console.warn(`${logPrefix} Reading uninitialized store`);
+		}
+	}
+
+	/**
+	 * Initializes the store with starting values. Runs middleware and triggers onInitialize.
 	 *
 	 * @param initialState - Starting state values
 	 * @returns Promise that resolves when initialization is complete
-	 *
-	 * @example
-	 * ```typescript
-	 * // In your root layout or page
-	 * async function RootLayout({ children }) {
-	 *   const user = await fetchCurrentUser();
-	 *   await userStore.initialize({ userId: user.id, userName: user.name });
-	 *   return <>{children}</>;
-	 * }
-	 * ```
 	 */
-	async function initialize(initialState: State): Promise<void> {
-		const cacheInstance = await getCacheInstanceAsync();
-		const previousState = cacheInstance.state;
-
-		const finalState = await applyMiddleware("initialize", previousState, initialState);
-
-		cacheInstance.state = finalState;
-		cacheInstance.initialized = true;
-		invalidateDerivedCache(cacheInstance);
-
-		await writeToAdapter(finalState);
-
-		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Initialized:`, finalState);
-		}
-
-		await configuration.onInitialize?.(finalState);
+	function initialize(initialState: State): Promise<void> {
+		return mutate("initialize", () => initialState);
 	}
 
 	/**
-	 * Reads current state including derived properties.
-	 * Can be called from any Server Component in the tree.
-	 * This is a synchronous operation that returns cached state.
+	 * Loads adapter state if needed and returns the full state.
+	 *
+	 * @param options - Hydration options; `force` re-reads the adapter after pending mutations
+	 * @returns Promise resolving to the combined base and derived state
+	 */
+	async function hydrate(options?: HydrateOptions): Promise<FullState> {
+		const instance = getInstance();
+
+		if (adapter !== undefined && options?.force === true) {
+			await runExclusive(instance, async () => {
+				applyStoredState(instance, await adapter.read());
+			});
+		} else {
+			const hydration = ensureHydrated(instance);
+
+			if (hydration !== null) {
+				await hydration;
+			}
+		}
+
+		return resolveFullState(instance);
+	}
+
+	/**
+	 * Reads current state including derived properties. Synchronous and allocation-free
+	 * while the state is unchanged.
 	 *
 	 * @returns Combined base and derived state
-	 *
-	 * @example
-	 * ```typescript
-	 * // In any Server Component
-	 * function UserProfile() {
-	 *   const { userName, isAuthenticated } = userStore.read();
-	 *   return isAuthenticated ? <p>Welcome, {userName}!</p> : <p>Please log in</p>;
-	 * }
-	 * ```
 	 */
 	function read(): FullState {
-		const cacheInstance = getCacheInstanceSync();
+		const instance = getInstance();
 
-		if (!cacheInstance.initialized && configuration.debug) {
-			console.warn(`[rsc-state:${storageMode}] Reading uninitialized store`);
+		if (isDebugEnabled) {
+			warnOnUnpreparedRead(instance);
 		}
 
-		return computeDerivedState(cacheInstance.state, cacheInstance);
+		return resolveFullState(instance);
 	}
 
 	/**
-	 * Updates state by applying a reducer function to previous state.
-	 * Runs middleware and triggers onUpdate callback.
+	 * Updates state by applying a reducer function to the committed state.
 	 *
 	 * @param updaterFunction - Function that transforms previous state to new state
 	 * @returns Promise that resolves when update is complete
-	 *
-	 * @example
-	 * ```typescript
-	 * // Update a single property
-	 * await userStore.update((state) => ({ ...state, userName: "New Name" }));
-	 *
-	 * // Increment a counter
-	 * await counterStore.update((state) => ({ ...state, count: state.count + 1 }));
-	 * ```
 	 */
-	async function update(updaterFunction: (previousState: State) => State): Promise<void> {
-		const cacheInstance = await getCacheInstanceAsync();
-		const previousState = cacheInstance.state;
-		const updatedState = updaterFunction(previousState);
-
-		const finalState = await applyMiddleware("update", previousState, updatedState);
-
-		cacheInstance.state = finalState;
-		invalidateDerivedCache(cacheInstance);
-
-		await writeToAdapter(finalState);
-
-		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Updated:`, finalState);
-		}
-
-		await configuration.onUpdate?.(previousState, finalState);
+	function update(updaterFunction: (previousState: State) => State): Promise<void> {
+		return mutate("update", updaterFunction);
 	}
 
 	/**
 	 * Replaces entire state with a new state object.
-	 * Runs middleware and triggers onUpdate callback.
 	 *
 	 * @param newState - Complete new state object
 	 * @returns Promise that resolves when set is complete
-	 *
-	 * @example
-	 * ```typescript
-	 * // Replace entire state
-	 * await userStore.set({ userId: "123", userName: "John Doe" });
-	 *
-	 * // Clear user data on logout
-	 * await userStore.set({ userId: null, userName: "" });
-	 * ```
 	 */
-	async function set(newState: State): Promise<void> {
-		const cacheInstance = await getCacheInstanceAsync();
-		const previousState = cacheInstance.state;
-
-		const finalState = await applyMiddleware("set", previousState, newState);
-
-		cacheInstance.state = finalState;
-		invalidateDerivedCache(cacheInstance);
-
-		await writeToAdapter(finalState);
-
-		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Set:`, finalState);
-		}
-
-		await configuration.onUpdate?.(previousState, finalState);
+	function set(newState: State): Promise<void> {
+		return mutate("set", () => newState);
 	}
 
 	/**
-	 * Partially updates state by merging with existing state.
-	 * Runs middleware and triggers onUpdate callback.
+	 * Shallow-merges a partial state into the committed state.
 	 *
 	 * @param partialState - Partial state object to merge with current state
 	 * @returns Promise that resolves when patch is complete
-	 *
-	 * @example
-	 * ```typescript
-	 * // Update only userName, keep other properties
-	 * await userStore.patch({ userName: "New Name" });
-	 *
-	 * // Update multiple properties at once
-	 * await userStore.patch({ userName: "John", email: "john@example.com" });
-	 * ```
 	 */
-	async function patch(partialState: Partial<State>): Promise<void> {
-		const cacheInstance = await getCacheInstanceAsync();
-		const previousState = cacheInstance.state;
-		const patchedState = { ...previousState, ...partialState };
-
-		const finalState = await applyMiddleware("patch", previousState, patchedState);
-
-		cacheInstance.state = finalState;
-		invalidateDerivedCache(cacheInstance);
-
-		await writeToAdapter(finalState);
-
-		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Patched:`, finalState);
-		}
-
-		await configuration.onUpdate?.(previousState, finalState);
+	function patch(partialState: Partial<State>): Promise<void> {
+		return mutate("patch", (previousState) => mergePartialState(previousState, partialState));
 	}
 
 	/**
-	 * Selects and returns a specific value from state using a selector function.
-	 * This is a synchronous operation.
+	 * Selects a value from the full state.
 	 *
 	 * @param selectorFunction - Function that extracts desired value from state
 	 * @returns Selected value extracted from state
-	 *
-	 * @example
-	 * ```typescript
-	 * // Select a single property
-	 * const userName = userStore.select((state) => state.userName);
-	 *
-	 * // Select derived state
-	 * const isLoggedIn = userStore.select((state) => state.isAuthenticated);
-	 *
-	 * // Compute a value from state
-	 * const displayName = userStore.select((state) => state.userName || "Anonymous");
-	 * ```
 	 */
 	function select<R>(selectorFunction: (state: FullState) => R): R {
 		return selectorFunction(read());
 	}
 
 	/**
-	 * Resets state back to initial values defined in configuration.
-	 * Runs middleware and triggers onReset callback.
+	 * Resets state back to the configured initial values.
 	 *
 	 * @returns Promise that resolves when reset is complete
-	 *
-	 * @example
-	 * ```typescript
-	 * // Reset store to initial state
-	 * await userStore.reset();
-	 *
-	 * // Useful for logout flows
-	 * async function handleLogout() {
-	 *   await signOut();
-	 *   await userStore.reset();
-	 * }
-	 * ```
 	 */
-	async function reset(): Promise<void> {
-		const cacheInstance = await getCacheInstanceAsync();
-		const previousState = cacheInstance.state;
-		const initialState = getInitialState();
-
-		const finalState = await applyMiddleware("reset", previousState, initialState);
-
-		cacheInstance.state = finalState;
-		invalidateDerivedCache(cacheInstance);
-
-		await writeToAdapter(finalState);
-
-		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Reset`);
-		}
-
-		await configuration.onReset?.();
+	function reset(): Promise<void> {
+		return mutate("reset", getInitialState);
 	}
 
 	/**
-	 * Executes multiple state updates in a batch, computing derived state only once
-	 * after all updates complete. Middleware is applied once after the batch.
-	 * Improves performance when making multiple updates.
+	 * Runs a batch callback against a private draft and returns the final draft.
+	 * The API is disabled once the callback settles so a leaked reference cannot
+	 * modify a draft that was already committed or discarded.
 	 *
-	 * @param callback - Function that receives a batch API with update, set, and patch methods
-	 * @returns Promise that resolves when batch is complete
-	 *
-	 * @example
-	 * ```typescript
-	 * // Multiple updates in a single batch
-	 * await userStore.batch((api) => {
-	 *   api.update((state) => ({ ...state, userName: "John" }));
-	 *   api.patch({ email: "john@example.com" });
-	 *   api.update((state) => ({ ...state, lastLogin: new Date() }));
-	 * });
-	 *
-	 * // Mix update and set within a batch
-	 * await cartStore.batch((api) => {
-	 *   api.update((state) => ({ ...state, itemCount: state.itemCount + 1 }));
-	 *   api.set({ items: [], itemCount: 0, total: 0 }); // Clear cart
-	 * });
-	 * ```
+	 * @param initialDraft - Committed state the draft starts from
+	 * @param callback - User callback receiving the batch API
+	 * @returns Promise resolving to the final draft state
 	 */
-	async function batch(callback: (api: BatchApi<State>) => void): Promise<void> {
-		const cacheInstance = await getCacheInstanceAsync();
-		const initialState = cacheInstance.state;
+	async function collectBatchChanges(initialDraft: State, callback: (api: BatchApi<State>) => void | Promise<void>): Promise<State> {
+		let draftState = initialDraft;
+		let isOpen = true;
+
+		/**
+		 * Guards batch API calls made after the batch callback settled.
+		 *
+		 * @returns void
+		 */
+		function assertBatchOpen(): void {
+			if (!isOpen) {
+				throw new Error(`${logPrefix} Batch API used after the batch callback settled.`);
+			}
+		}
 
 		const batchApi: BatchApi<State> = {
-			update: (updaterFunction: (previousState: State) => State): void => {
-				cacheInstance.state = updaterFunction(cacheInstance.state);
+			read(): State {
+				assertBatchOpen();
+
+				return draftState;
 			},
-			set: (newState: State): void => {
-				cacheInstance.state = newState;
+			update(updaterFunction: (previousState: State) => State): void {
+				assertBatchOpen();
+				draftState = updaterFunction(draftState);
 			},
-			patch: (partialState: Partial<State>): void => {
-				cacheInstance.state = { ...cacheInstance.state, ...partialState };
+			set(newState: State): void {
+				assertBatchOpen();
+				draftState = newState;
+			},
+			patch(partialState: Partial<State>): void {
+				assertBatchOpen();
+				draftState = mergePartialState(draftState, partialState);
 			},
 		};
 
-		callback(batchApi);
+		try {
+			const result = callback(batchApi);
 
-		// Apply middleware once after batch completes
-		const finalState = await applyMiddleware("batch", initialState, cacheInstance.state);
-
-		cacheInstance.state = finalState;
-		invalidateDerivedCache(cacheInstance);
-
-		await writeToAdapter(finalState);
-
-		if (configuration.debug) {
-			console.log(`[rsc-state:${storageMode}] Batch updated:`, finalState);
+			if (isPromiseLike(result)) {
+				await result;
+			}
+		} finally {
+			isOpen = false;
 		}
 
-		await configuration.onUpdate?.(initialState, finalState);
+		return draftState;
+	}
+
+	/**
+	 * Applies several changes as one atomic transition.
+	 *
+	 * @param callback - Function that receives a batch API with read, update, set, and patch methods
+	 * @returns Promise that resolves when the batch is committed
+	 */
+	function batch(callback: (api: BatchApi<State>) => void | Promise<void>): Promise<void> {
+		return mutate("batch", (previousState) => collectBatchChanges(previousState, callback));
 	}
 
 	return {
 		initialize,
+		hydrate,
 		read,
 		update,
 		set,

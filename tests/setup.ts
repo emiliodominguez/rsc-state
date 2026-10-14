@@ -2,21 +2,26 @@ import { vi } from "vitest";
 
 /**
  * Mock implementation of React's cache function for testing.
- * In the actual React Server Components environment, cache provides
- * request-scoped memoization. For tests, we simulate this behavior
- * with a simple memoization that persists within each test.
+ * In a real React Server Components environment, cache memoizes per request.
+ * Here results are memoized per simulated request (see `simulateNewRequest`),
+ * which lets tests verify isolation between requests.
  */
-vi.mock("react", () => ({
-	cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => {
-		let cachedResult: ReturnType<T> | undefined;
-		let hasCached = false;
+vi.mock("react", async () => {
+	const { getCurrentRequest } = await import("./request-scope");
 
-		return ((...args: Parameters<T>): ReturnType<T> => {
-			if (!hasCached) {
-				cachedResult = fn(...args) as ReturnType<T>;
-				hasCached = true;
-			}
-			return cachedResult as ReturnType<T>;
-		}) as T;
-	},
-}));
+	return {
+		cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => {
+			const resultsByRequest = new WeakMap<object, ReturnType<T>>();
+
+			return ((...args: Parameters<T>): ReturnType<T> => {
+				const currentRequest = getCurrentRequest();
+
+				if (!resultsByRequest.has(currentRequest)) {
+					resultsByRequest.set(currentRequest, fn(...args) as ReturnType<T>);
+				}
+
+				return resultsByRequest.get(currentRequest) as ReturnType<T>;
+			}) as T;
+		},
+	};
+});

@@ -5,6 +5,11 @@ export default defineConfig({
 		globals: true,
 		environment: "node",
 		setupFiles: ["./tests/setup.ts"],
+		typecheck: {
+			enabled: true,
+			include: ["tests/**/*.test-d.ts"],
+			tsconfig: "./tsconfig.test.json",
+		},
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json", "html"],

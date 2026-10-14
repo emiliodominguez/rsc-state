@@ -336,7 +336,7 @@ describe("createServerStore", () => {
 			await store.reset();
 
 			// Then
-			expect(console.log).toHaveBeenCalledWith(expect.stringContaining("Reset"));
+			expect(console.log).toHaveBeenCalledWith(expect.stringContaining("Reset"), { count: 0 });
 		});
 
 		it("should warn when reading uninitialized store with debug enabled", () => {
