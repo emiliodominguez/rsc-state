@@ -4,6 +4,8 @@ export default defineConfig({
 	test: {
 		globals: true,
 		environment: "node",
+		// Only the project's own tests: never copies of the repository (such as .claude/worktrees)
+		include: ["tests/**/*.test.ts"],
 		setupFiles: ["./tests/setup.ts"],
 		coverage: {
 			provider: "v8",

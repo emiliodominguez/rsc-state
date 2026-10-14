@@ -18,6 +18,8 @@ export default tseslint.config(
 			"*.config.ts",
 			"*.config.mts",
 			"tests/**",
+			"**/.claude/**",
+			"**/.data/**",
 		],
 	},
 	eslint.configs.recommended,

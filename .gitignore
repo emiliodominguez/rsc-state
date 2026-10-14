@@ -42,3 +42,10 @@ examples/waku/src/pages.gen.ts
 
 # TypeScript incremental build caches
 *.tsbuildinfo
+
+# Example runtime data (the adapters example persists settings here)
+.data/
+
+# Machine-local Claude Code files; shared .claude/ files stay committable
+.claude/settings.local.json
+.claude/worktrees/

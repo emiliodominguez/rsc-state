@@ -6,3 +6,5 @@ coverage
 .next
 .turbo
 build
+.claude
+.data
