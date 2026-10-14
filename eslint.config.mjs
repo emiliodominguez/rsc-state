@@ -2,12 +2,23 @@
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier";
-import importPlugin from "eslint-plugin-import";
+import { createTypeScriptImportResolver } from "eslint-import-resolver-typescript";
+import { importX } from "eslint-plugin-import-x";
 import globals from "globals";
 
 export default tseslint.config(
 	{
-		ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "**/*.js", "**/*.mjs", "**/examples/**", "*.config.ts", "tests/**"],
+		ignores: [
+			"**/dist/**",
+			"**/node_modules/**",
+			"**/coverage/**",
+			"**/*.js",
+			"**/*.mjs",
+			"**/examples/**",
+			"*.config.ts",
+			"*.config.mts",
+			"tests/**",
+		],
 	},
 	eslint.configs.recommended,
 	...tseslint.configs.strictTypeChecked,
@@ -26,13 +37,10 @@ export default tseslint.config(
 	{
 		files: ["**/*.ts"],
 		plugins: {
-			import: importPlugin,
+			"import-x": importX,
 		},
 		settings: {
-			"import/resolver": {
-				typescript: true,
-				node: true,
-			},
+			"import-x/resolver-next": [createTypeScriptImportResolver()],
 		},
 		rules: {
 			// Strict TypeScript rules
@@ -100,8 +108,8 @@ export default tseslint.config(
 
 			// Import organization
 			"no-duplicate-imports": "off",
-			"import/no-duplicates": "error",
-			"import/order": [
+			"import-x/no-duplicates": "error",
+			"import-x/order": [
 				"error",
 				{
 					groups: [["builtin", "external"], "internal", ["parent", "sibling", "index"], "unknown"],

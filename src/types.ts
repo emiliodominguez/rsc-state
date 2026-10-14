@@ -22,6 +22,8 @@ export type OperationType = "initialize" | "update" | "set" | "patch" | "reset" 
  * Derived state shape used when a store has no `derive` function.
  * Intersecting with it leaves the base state type untouched.
  */
+// An empty object type is the point: it is the identity element for `T & D`
+// eslint-disable-next-line @typescript-eslint/no-generated-empty-object-type
 export type EmptyDerivedState = Record<never, never>;
 
 /**

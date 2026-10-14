@@ -488,7 +488,7 @@ When no middleware, adapter or batch callback needs to await anything, the mutat
 
 ## Performance
 
-`npm run bench` (Node 22, persistent store, 200-item derived cart):
+Per-call throughput (Node 22, persistent store, 200-item derived cart), measured with the Vitest 3 benchmark harness before and after the rewrite:
 
 | Operation                        | ops/s (v1.0.0) | ops/s (current) |
 | -------------------------------- | -------------- | --------------- |
@@ -497,6 +497,8 @@ When no middleware, adapter or batch callback needs to await anything, the mutat
 | `patch()`                        | 1.0M           | 1.4M            |
 | `batch()` with 10 updates        | 0.77M          | 1.39M           |
 | `patch()` + `read()` with derive | 0.31M          | 0.52M           |
+
+These figures include the harness overhead of one function call per sample. `npm run bench` (Vitest 5) batches 1000 reads per sample to remove that overhead and reports about 250M reads/s with memoized derived state (~4 ns per `read()`).
 
 Where it comes from:
 

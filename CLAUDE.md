@@ -13,10 +13,10 @@
 
 ## Tech Stack
 
-- **Language**: TypeScript 5.8+
-- **Build**: tsup (dual CJS/ESM output)
-- **Testing**: Vitest
-- **Linting**: ESLint 9 (flat config)
+- **Language**: TypeScript 6.0 (published types are verified against TypeScript 7)
+- **Build**: tsdown (dual CJS/ESM output, config in `tsdown.config.mts`)
+- **Testing**: Vitest 5 (config in `vitest.config.mts`)
+- **Linting**: ESLint 10 (flat config, `eslint-plugin-import-x`)
 - **Formatting**: Prettier
 - **Commits**: Commitizen + Commitlint (conventional commits)
 - **Versioning**: Changesets
@@ -299,6 +299,10 @@ npm run test:coverage # With coverage report
 npm run bench         # Read/write throughput benchmarks
 ```
 
+Benchmarks use the Vitest 5 `bench` test fixture (`tests/store.bench.ts`). Read benchmarks run batches of 1000 calls per sample, so multiply the reported hz by 1000.
+
+The repository stays on TypeScript 6.0 until `typescript-eslint` supports TypeScript 7; config files use `.mts` because the package is `"type": "commonjs"`.
+
 Type-level tests live in `tests/*.test-d.ts` and run as part of `npm test` (Vitest typecheck).
 Use `simulateNewRequest()` from `tests/request-scope.ts` to emulate a new server request in tests.
 
@@ -418,7 +422,7 @@ npm run test:watch -- --reporter=verbose
 - [React `cache` API](https://react.dev/reference/react/cache)
 - [React Server Components](https://react.dev/reference/rsc/server-components)
 - [Next.js Server Components](https://nextjs.org/docs/app/building-your-application/rendering/server-components)
-- [TypeScript 5.8 Release](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-8.html)
+- [TypeScript 6.0 Release](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-6-0.html)
 
 ## Documentation Philosophy
 
