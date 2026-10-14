@@ -306,6 +306,8 @@ The repository stays on TypeScript 6.0 until `typescript-eslint` supports TypeSc
 Type-level tests live in `tests/*.test-d.ts`. `npm test` compiles them with `tsc -p tsconfig.test.json` after the Vitest run, so a failing `expectTypeOf` fails the test command.
 Use `simulateNewRequest()` from `tests/request-scope.ts` to emulate a new server request in tests.
 
+Property-based tests (`tests/properties.test.ts`, fast-check) check the store against a sequential reference model under scheduler-controlled async interleavings, plus isolation, `patch()` and validation properties. Failures print a shrunk counterexample that replays deterministically. Run them deeper with `PROPERTY_RUNS_MULTIPLIER=20 npm test`, and add a property whenever a change touches concurrency, copying, merging or validation.
+
 Coverage targets:
 
 - Statements: 90%+
@@ -398,7 +400,7 @@ npm run changeset:publish  # Publish to npm
 
 1. Update `src/types.ts` with interface definition
 2. Implement in `create-store.ts` with full JSDoc
-3. Add tests in `tests/store.test.ts` (core behavior), `tests/reliability.test.ts` (concurrency, hydration, consistency) and `tests/types.test-d.ts` (type inference)
+3. Add tests in `tests/store.test.ts` (core behavior), `tests/reliability.test.ts` (concurrency, hydration, consistency), `tests/security.test.ts` (isolation, validation, hostile input), `tests/properties.test.ts` (properties) and `tests/types.test-d.ts` (type inference)
 4. Export from `src/index.ts`
 5. Document in README.md
 6. Create changeset
