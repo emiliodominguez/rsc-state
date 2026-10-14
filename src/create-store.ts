@@ -38,6 +38,9 @@ interface StoreInstance<T, F> {
 	/** Memoized base + derived state, returned as-is while `state` is unchanged. */
 	fullState: F;
 
+	/** Error thrown by derive for `derivedSourceState`, or null when it succeeded. */
+	deriveError: Error | null;
+
 	/** Tail of the mutation queue, or null when no mutation is in flight. */
 	pendingMutation: Promise<void> | null;
 
@@ -129,6 +132,145 @@ function mergePartialState<T extends object>(state: T, partialState: Partial<T>)
 }
 
 /**
+ * Checks whether a value is a plain object (object literal, `JSON.parse` output or
+ * `Object.create(null)`) rather than a class instance such as Date or Map.
+ *
+ * @param value - Object to inspect
+ * @returns True when the prototype is Object.prototype or null
+ */
+function isPlainObject(value: object): boolean {
+	const prototype: unknown = Object.getPrototypeOf(value);
+
+	return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Copies plain objects and arrays, sharing everything else (class instances, primitives).
+ *
+ * Every request-scoped instance would otherwise start from the very same `initial` object, so an
+ * in-place mutation of what `read()` returned (`read().items.push(...)`) would leak into every later
+ * request, including other users'. Copying gives each instance its own plain data. Copying is used
+ * rather than freezing because V8 iterates frozen arrays 5-15x slower, which would tax every render.
+ *
+ * Accessor properties are copied as accessors, never invoked. Keys named `__proto__` are defined,
+ * not assigned, so a JSON-sourced `initial` cannot change the copy's prototype. Cycles are preserved.
+ *
+ * @param value - Value to copy
+ * @param copiesBySource - Copies made so far, keyed by their source object
+ * @returns A copy for plain objects and arrays, the value itself otherwise
+ */
+function clonePlainData<V>(value: V, copiesBySource = new Map<object, unknown>()): V {
+	if (typeof value !== "object" || value === null) {
+		return value;
+	}
+
+	const existingCopy = copiesBySource.get(value);
+
+	if (existingCopy !== undefined) {
+		return existingCopy as V;
+	}
+
+	if (Array.isArray(value)) {
+		const arrayCopy: unknown[] = [];
+
+		copiesBySource.set(value, arrayCopy);
+
+		for (const element of value as unknown[]) {
+			arrayCopy.push(clonePlainData(element, copiesBySource));
+		}
+
+		return arrayCopy as V;
+	}
+
+	if (!isPlainObject(value)) {
+		return value;
+	}
+
+	const objectCopy = Object.create(Object.getPrototypeOf(value) as object | null) as Record<PropertyKey, unknown>;
+
+	copiesBySource.set(value, objectCopy);
+
+	for (const key of Reflect.ownKeys(value)) {
+		const propertyDescriptor = Object.getOwnPropertyDescriptor(value, key);
+
+		if (propertyDescriptor === undefined) {
+			continue;
+		}
+
+		if ("value" in propertyDescriptor) {
+			propertyDescriptor.value = clonePlainData<unknown>(propertyDescriptor.value, copiesBySource);
+		}
+
+		const isOrdinaryDataProperty =
+			propertyDescriptor.writable === true && propertyDescriptor.enumerable === true && propertyDescriptor.configurable === true;
+
+		// Plain assignment keeps the fast object shape; "__proto__" must be defined to stay an own key
+		if (isOrdinaryDataProperty && key !== "__proto__") {
+			objectCopy[key] = propertyDescriptor.value;
+		} else {
+			Object.defineProperty(objectCopy, key, propertyDescriptor);
+		}
+	}
+
+	return objectCopy as V;
+}
+
+/**
+ * Finds the first class instance (Map, Set, Date, ...) nested in plain objects and arrays.
+ * `clonePlainData` cannot copy these, so in a literal `initial` they stay shared by every request.
+ *
+ * @param value - State tree to scan
+ * @returns Dotted path of the first class instance (e.g. "initial.sessions"), or null
+ */
+function findSharedClassInstancePath(value: unknown): string | null {
+	const pendingEntries: { value: unknown; path: string }[] = [{ value, path: "initial" }];
+	const visitedObjects = new Set<object>();
+
+	while (pendingEntries.length > 0) {
+		const entry = pendingEntries.pop();
+
+		if (entry === undefined || typeof entry.value !== "object" || entry.value === null || visitedObjects.has(entry.value)) {
+			continue;
+		}
+
+		visitedObjects.add(entry.value);
+
+		if (Array.isArray(entry.value)) {
+			(entry.value as unknown[]).forEach((element, index) => {
+				pendingEntries.push({ value: element, path: `${entry.path}[${index}]` });
+			});
+		} else if (isPlainObject(entry.value)) {
+			for (const key of Reflect.ownKeys(entry.value)) {
+				const propertyDescriptor = Object.getOwnPropertyDescriptor(entry.value, key);
+
+				if (propertyDescriptor !== undefined && "value" in propertyDescriptor) {
+					pendingEntries.push({ value: propertyDescriptor.value, path: `${entry.path}.${String(key)}` });
+				}
+			}
+		} else {
+			return entry.path;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Describes an invalid state value for error messages without echoing its content,
+ * which may be sensitive.
+ *
+ * @param value - Invalid value
+ * @returns Short description such as "null" or "a string"
+ */
+function describeInvalidState(value: unknown): string {
+	if (value === null) {
+		return "null";
+	}
+
+	return value === undefined ? "undefined" : `a ${typeof value}`;
+}
+
+/**
  * Creates a server store for managing state in React Server Components.
  *
  * Supports two storage modes:
@@ -191,9 +333,22 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	const logPrefix = `[rsc-state:${storageMode}]`;
 	const middlewareChain = configuration.middleware ?? [];
 	const deriveFunction = configuration.derive;
+	const shouldThrowOnDeriveError = configuration.throwOnDeriveError === true;
 
 	// Adapters only make sense for state that outlives a request
 	const adapter = isPersistent ? configuration.adapter : undefined;
+
+	if (!isPersistent && typeof configuration.initial !== "function") {
+		const sharedClassInstancePath = findSharedClassInstancePath(configuration.initial);
+
+		// Always warn: a mutable container shared by every request is a cross-user leak risk
+		if (sharedClassInstancePath !== null) {
+			console.warn(
+				`${logPrefix} ${sharedClassInstancePath} is a class instance (Map, Set, Date, ...) that cannot be copied per request, so every request shares it. ` +
+					"Mutating it in place would leak data between requests. Use a factory instead: initial: () => ({ ... }).",
+			);
+		}
+	}
 
 	if (isDebugEnabled && !isPersistent && configuration.adapter) {
 		console.warn(`${logPrefix} Storage adapters are ignored in "request" mode. Use storage: "persistent" to enable them.`);
@@ -213,7 +368,30 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	 * @returns Initial state value
 	 */
 	function getInitialState(): State {
-		return typeof configuration.initial === "function" ? configuration.initial() : configuration.initial;
+		const initialState: unknown = typeof configuration.initial === "function" ? configuration.initial() : configuration.initial;
+
+		assertValidState(initialState, "The initial state");
+
+		// A literal `initial` would otherwise be the same object in every instance (see clonePlainData)
+		return typeof configuration.initial === "function" ? initialState : clonePlainData(initialState);
+	}
+
+	/**
+	 * Rejects values that cannot be store state. Without this, `null` (for example from
+	 * `JSON.parse` of a tampered cookie) or a corrupted adapter value would be committed and
+	 * crash readers later, far from the cause.
+	 *
+	 * @param value - Candidate state
+	 * @param source - Human-readable origin of the value, used in the error message
+	 * @param hint - Optional guidance appended to the error message
+	 * @returns void
+	 */
+	function assertValidState(value: unknown, source: string, hint = ""): asserts value is State {
+		if (typeof value === "object" && value !== null) {
+			return;
+		}
+
+		throw new TypeError(`${logPrefix} ${source} returned ${describeInvalidState(value)}. Store state must be an object.${hint}`);
 	}
 
 	/**
@@ -231,6 +409,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 			derivedSourceState: undefined,
 			derivedBy: undefined,
 			fullState: state as FullState,
+			deriveError: null,
 			pendingMutation: null,
 			pendingHydration: null,
 		};
@@ -328,6 +507,8 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	 */
 	function applyStoredState(instance: Instance, storedState: State | null | undefined): void {
 		if (storedState !== null && storedState !== undefined) {
+			assertValidState(storedState, "The storage adapter's read()");
+
 			instance.state = storedState;
 			instance.initialized = true;
 		}
@@ -410,13 +591,13 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 			// Typed as unknown because a misbehaving middleware can return anything at runtime
 			const resolvedState: unknown = isPromiseLike(result) ? await result : result;
 
-			if (resolvedState === null || resolvedState === undefined) {
-				throw new TypeError(
-					`${logPrefix} Middleware at index ${middlewareIndex} returned ${resolvedState === null ? "null" : "undefined"} for "${operationType}". Return operation.nextState or a new state object.`,
-				);
-			}
+			assertValidState(
+				resolvedState,
+				`Middleware at index ${middlewareIndex}`,
+				` Return operation.nextState or a new state object (operation: "${operationType}").`,
+			);
 
-			currentState = resolvedState as State;
+			currentState = resolvedState;
 			middlewareIndex++;
 		}
 
@@ -448,7 +629,9 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 
 		const previousState = instance.state;
 		const produced = produceNextState(previousState);
-		const proposedState = isPromiseLike(produced) ? await produced : produced;
+		const proposedState: unknown = isPromiseLike(produced) ? await produced : produced;
+
+		assertValidState(proposedState, `${operationType}()`);
 
 		// Initialize and reset are explicit lifecycle events and always commit
 		const skipsUnchangedState = operationType !== "initialize" && operationType !== "reset";
@@ -578,15 +761,24 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 		}
 
 		if (instance.derivedSourceState !== baseState || instance.derivedBy !== deriveFunction) {
+			let derivedState: D | undefined;
+
 			try {
-				instance.fullState = { ...baseState, ...deriveFunction(baseState) };
+				derivedState = deriveFunction(baseState);
+				instance.deriveError = null;
 			} catch (thrownValue: unknown) {
-				instance.fullState = baseState as FullState;
-				reportDeriveError(toError(thrownValue), baseState);
+				instance.deriveError = toError(thrownValue);
+				reportDeriveError(instance.deriveError, baseState);
 			}
 
+			instance.fullState = derivedState === undefined ? (baseState as FullState) : { ...baseState, ...derivedState };
 			instance.derivedSourceState = baseState;
 			instance.derivedBy = deriveFunction;
+		}
+
+		// Fail closed: derived values that gate access must not silently read as undefined
+		if (instance.deriveError !== null && shouldThrowOnDeriveError) {
+			throw instance.deriveError;
 		}
 
 		return instance.fullState;

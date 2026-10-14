@@ -246,6 +246,17 @@ export interface StoreConfig<T extends object, D extends object = EmptyDerivedSt
 	derive?: (state: T) => D;
 
 	/**
+	 * Throw from `read()`, `select()` and `hydrate()` when `derive` fails, instead of returning
+	 * the base state without derived properties. Enable it when derived values gate access
+	 * (permissions, entitlements, `isAdmin`-style flags): a failing derive then fails closed
+	 * instead of the flag silently reading as `undefined`. The error is still reported to
+	 * `onError`, once per failing state.
+	 *
+	 * @defaultValue false
+	 */
+	throwOnDeriveError?: boolean;
+
+	/**
 	 * Callback invoked when an error occurs in the derive function.
 	 * Allows graceful error handling without crashing the store.
 	 * Called once per failing base state, not on every read.

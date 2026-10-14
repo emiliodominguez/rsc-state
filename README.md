@@ -281,19 +281,20 @@ Creates a new server store.
 
 **Parameters:**
 
-| Option         | Type                                                                | Description                                           |
-| -------------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
-| `initial`      | `T \| () => T`                                                      | Initial state value or factory function               |
-| `storage`      | `"request" \| "persistent"`                                         | Storage mode (default: `"request"`)                   |
-| `key`          | `string`                                                            | Registry key for persistent stores (survives HMR)     |
-| `derive`       | `(state: T) => D`                                                   | Derived state, inferred and memoized per state        |
-| `middleware`   | `Middleware<T>[]`                                                   | Array of middleware functions to intercept operations |
-| `adapter`      | `StorageAdapter<T>`                                                 | Storage adapter for persistent mode                   |
-| `debug`        | `boolean`                                                           | Enable debug logging                                  |
-| `onInitialize` | `(state: T) => void \| Promise<void>`                               | Callback after store initialization                   |
-| `onUpdate`     | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after effective state changes                |
-| `onReset`      | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after store reset                            |
-| `onError`      | `(error: Error, context: ErrorContext<T>) => void \| Promise<void>` | Callback when derive throws (once per failing state)  |
+| Option               | Type                                                                | Description                                                       |
+| -------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `initial`            | `T \| () => T`                                                      | Initial state value or factory function                           |
+| `storage`            | `"request" \| "persistent"`                                         | Storage mode (default: `"request"`)                               |
+| `key`                | `string`                                                            | Registry key for persistent stores (survives HMR)                 |
+| `derive`             | `(state: T) => D`                                                   | Derived state, inferred and memoized per state                    |
+| `middleware`         | `Middleware<T>[]`                                                   | Array of middleware functions to intercept operations             |
+| `adapter`            | `StorageAdapter<T>`                                                 | Storage adapter for persistent mode                               |
+| `debug`              | `boolean`                                                           | Enable debug logging                                              |
+| `onInitialize`       | `(state: T) => void \| Promise<void>`                               | Callback after store initialization                               |
+| `onUpdate`           | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after effective state changes                            |
+| `onReset`            | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after store reset                                        |
+| `onError`            | `(error: Error, context: ErrorContext<T>) => void \| Promise<void>` | Callback when derive throws (once per failing state)              |
+| `throwOnDeriveError` | `boolean`                                                           | Throw from reads when derive fails (fail closed); default `false` |
 
 **Returns:** `ServerStore<T, D>` instance
 
@@ -476,6 +477,16 @@ Lifecycle callbacks (`onInitialize`, `onUpdate`, `onReset`) run after the state 
 
 `onError` fires once per failing state rather than on every read. If `onError` itself throws or rejects, the failure is logged instead of crashing the render or leaking an unhandled rejection.
 
+When derived values gate access, falling back to the base state fails **open**: a flag like `canDeleteUsers` would silently read as `undefined`, and a deny flag like `isBanned` as falsy. Set `throwOnDeriveError: true` to fail closed instead: `read()`, `select()` and `hydrate()` rethrow the derive error (still reported to `onError` once), so the render fails rather than granting access.
+
+```typescript
+const permissionStore = createServerStore({
+	initial: { permissions: null as string[] | null },
+	derive: (state) => ({ canDeleteUsers: state.permissions!.includes("users:delete") }),
+	throwOnDeriveError: true,
+});
+```
+
 ### Batch Updates
 
 Combine multiple updates into one atomic transition. Changes are applied to a private draft; middleware, the adapter write and `onUpdate` run once when the callback settles:
@@ -526,6 +537,27 @@ counterStore.read().count; // 10
 ```
 
 When no middleware, adapter or batch callback needs to await anything, the mutation commits synchronously, in the same tick it was called. Always `await` mutating methods anyway; that's the only behavior the API guarantees.
+
+## Security
+
+rsc-state runs only on the server, but the state it holds often comes from requests. These are the guarantees it provides and the rules it relies on.
+
+**What the library enforces**
+
+- **Request isolation**: request-scoped state lives in React's per-request `cache`. Each instance (and each `reset()`) gets its own copy of the plain objects and arrays in a literal `initial`, so mutating what `read()` returned in place can never leak into another request. Class instances (`Map`, `Set`, `Date`, ...) can't be copied; a literal `initial` containing one logs a warning at creation. Use a factory (`initial: () => ({ ... })`) for those. Objects you pass to `initialize()` or `set()` become the state as they are, so don't pass module-level objects shared between requests.
+- **State validation**: `initialize`, `set`, `update`, `patch`, `batch`, middleware results and adapter reads must produce an object. `null`, `undefined` or primitives (for example `JSON.parse("null")` from a tampered cookie, or a corrupted storage value) are rejected with a `TypeError` and the previous state is kept.
+- **Prototype safety**: merges use object spread and keys named `__proto__` are defined as own properties, so JSON payloads can't pollute `Object.prototype` or change a state's prototype.
+- **Fail-closed option**: `throwOnDeriveError` (see [Error Handling](#error-handling)).
+- **No sensitive data in errors**: library error messages describe invalid values by type only. `debug: true` logs full state, so keep it off in production.
+
+**What your code must do**
+
+- **Never put user-specific data in `"persistent"` stores.** They are shared by every user and request.
+- **Treat everything from a request as untrusted.** Validate cookies, form data and route parameters before `initialize()`, `set()` or `patch()`: the store types are compile-time only, so an unvalidated object can add any field (`isAdmin: true`). Sessions kept in cookies must be signed; the Next.js examples show HMAC-signed, schema-validated sessions.
+- **Authorize Server Actions.** They are public HTTP endpoints. Check the caller before mutating a persistent store, since that change reaches every visitor.
+- **Keep `key` values static.** Every store with the same key shares one state, and keys are never released. Deriving keys from user input would mix tenants and grow memory without bound.
+- **Bound async work.** Mutations on a store run one at a time, so an adapter call or middleware that never settles blocks every later mutation, which for a persistent store means every user. Configure timeouts in your storage client.
+- **Render user-dependent pages dynamically.** If a page initializes a store from per-user data, make sure the framework doesn't cache its output for everyone (reading cookies makes Next.js render dynamically; Waku pages need `render: "dynamic"`).
 
 ## Performance
 
