@@ -1,32 +1,40 @@
 {
 	"name": "rsc-state",
 	"version": "1.0.0",
-	"description": "Type-safe state management for React Server Components, with derived state, async mutations, middleware and pluggable storage adapters.",
+	"description": "Type-safe state management for React Server Components, with derived state, hydration from storage adapters, middleware and transactional batches.",
 	"main": "./dist/index.js",
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.mjs",
-			"require": "./dist/index.js"
-		}
+			"import": {
+				"types": "./dist/index.d.mts",
+				"default": "./dist/index.mjs"
+			},
+			"require": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			}
+		},
+		"./package.json": "./package.json"
 	},
 	"files": [
 		"dist",
 		"README.md"
 	],
+	"sideEffects": false,
 	"scripts": {
 		"build": "NODE_ENV=production tsup",
 		"dev": "tsup --watch",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:coverage": "vitest run --coverage",
+		"bench": "vitest bench --run",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
-		"type-check": "tsc --noEmit",
+		"type-check": "tsc --noEmit && tsc -p tsconfig.test.json",
 		"prepare": "husky",
 		"changeset": "changeset",
 		"changeset:version": "changeset version",
@@ -39,7 +47,9 @@
 		"state-management",
 		"nextjs",
 		"rsc",
-		"typescript"
+		"typescript",
+		"react-server-components",
+		"server-state"
 	],
 	"author": "Emilio Dominguez <emilioadominguezb@gmail.com>",
 	"license": "MIT",
