@@ -96,6 +96,8 @@ const userStore = createServerStore({
 
 **Use for:** User sessions, authentication, user preferences, any user-specific data.
 
+**Where it works:** while React renders Server Components (layouts, pages, components). Outside a render (route handlers, Client Components and, depending on the framework, Server Actions) React's `cache` doesn't memoize, so every call gets a fresh instance and writes are discarded. The store warns once when it detects this. In Server Actions, persist changes to cookies or a database and revalidate, as shown below.
+
 **How it works:**
 
 1. Layout reads from data source (cookies/database)
@@ -116,6 +118,18 @@ const settingsStore = createServerStore({
 ```
 
 **Use for:** Feature flags, app-wide configuration, demos/prototypes.
+
+Give persistent stores a `key` so their state survives dev hot reloads and is shared when the bundler loads the store module more than once (Next.js can instantiate a module separately for pages and route handlers):
+
+```typescript
+const settingsStore = createServerStore({
+	storage: "persistent",
+	key: "app-settings",
+	initial: { theme: "light" },
+});
+```
+
+Keyed state lives in a registry on `globalThis`. Every store created with the same key shares one state, mutation queue and adapter hydration.
 
 **Warning:** Not suitable for user-specific data. Without an adapter, state is lost on server restart and not synced across server instances. Use a [storage adapter](#storage-adapters) to persist it.
 
@@ -230,6 +244,7 @@ Creates a new server store.
 | -------------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
 | `initial`      | `T \| () => T`                                                      | Initial state value or factory function               |
 | `storage`      | `"request" \| "persistent"`                                         | Storage mode (default: `"request"`)                   |
+| `key`          | `string`                                                            | Registry key for persistent stores (survives HMR)     |
 | `derive`       | `(state: T) => D`                                                   | Derived state, inferred and memoized per state        |
 | `middleware`   | `Middleware<T>[]`                                                   | Array of middleware functions to intercept operations |
 | `adapter`      | `StorageAdapter<T>`                                                 | Storage adapter for persistent mode                   |
@@ -415,6 +430,8 @@ const store = createServerStore({
 // When derive throws, base state is returned without derived properties
 const state = store.read(); // { data: null } - no crash!
 ```
+
+Lifecycle callbacks (`onInitialize`, `onUpdate`, `onReset`) run after the state is committed. If one throws, the mutating call rejects, but the new state stays in place.
 
 `onError` fires once per failing state rather than on every read. If `onError` itself throws or rejects, the failure is logged instead of crashing the render or leaking an unhandled rejection.
 

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { createServerStore } from "../src";
 import type { Middleware, StorageAdapter } from "../src";
 
-import { simulateNewRequest } from "./request-scope";
+import { simulateMissingRequestScope, simulateNewRequest } from "./request-scope";
 
 /**
  * Resolves after the given number of milliseconds.
@@ -639,5 +639,145 @@ describe("transactional batch", () => {
 		// Then
 		expect(() => leakedApi?.patch({ count: 1 })).toThrow(/after the batch callback settled/);
 		expect(store.read().count).toEqual(0);
+	});
+});
+
+describe("request scope detection", () => {
+	afterEach(() => {
+		simulateNewRequest();
+	});
+
+	it("should warn once when request-scoped state cannot be kept outside a render", async () => {
+		// Given
+		const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const store = createServerStore({ initial: { count: 0 } });
+		simulateMissingRequestScope();
+
+		// When
+		await store.patch({ count: 1 });
+		await store.patch({ count: 2 });
+
+		// Then
+		expect(consoleWarn).toHaveBeenCalledTimes(1);
+		expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("React cache() is not active"));
+	});
+
+	it("should not warn inside a request scope", async () => {
+		// Given
+		const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const store = createServerStore({ initial: { count: 0 } });
+
+		// When
+		await store.patch({ count: 1 });
+
+		// Then
+		expect(consoleWarn).not.toHaveBeenCalled();
+	});
+
+	it("should not warn for persistent stores outside a request scope", async () => {
+		// Given
+		const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const store = createServerStore({ storage: "persistent", initial: { count: 0 } });
+		simulateMissingRequestScope();
+
+		// When
+		await store.patch({ count: 1 });
+
+		// Then
+		expect(consoleWarn).not.toHaveBeenCalled();
+		expect(store.read().count).toEqual(1);
+	});
+});
+
+describe("keyed persistent stores", () => {
+	it("should share state between store definitions with the same key", async () => {
+		// Given
+		const firstDefinition = createServerStore({ storage: "persistent", key: "shared-counter", initial: { count: 0 } });
+		const secondDefinition = createServerStore({ storage: "persistent", key: "shared-counter", initial: { count: 0 } });
+
+		// When
+		await firstDefinition.patch({ count: 5 });
+
+		// Then
+		expect(secondDefinition.read().count).toEqual(5);
+	});
+
+	it("should isolate stores with different keys", async () => {
+		// Given
+		const firstStore = createServerStore({ storage: "persistent", key: "isolated-a", initial: { count: 0 } });
+		const secondStore = createServerStore({ storage: "persistent", key: "isolated-b", initial: { count: 0 } });
+
+		// When
+		await firstStore.patch({ count: 5 });
+
+		// Then
+		expect(secondStore.read().count).toEqual(0);
+	});
+
+	it("should recompute derived state when a redefined store changes its derive function", async () => {
+		// Given
+		const originalDefinition = createServerStore({
+			storage: "persistent",
+			key: "hot-reloaded",
+			initial: { count: 2 },
+			derive: (state) => ({ scaled: state.count * 2 }),
+		});
+		originalDefinition.read();
+
+		// When
+		const reloadedDefinition = createServerStore({
+			storage: "persistent",
+			key: "hot-reloaded",
+			initial: { count: 2 },
+			derive: (state) => ({ scaled: state.count * 10 }),
+		});
+
+		// Then
+		expect(reloadedDefinition.read().scaled).toEqual(20);
+	});
+
+	it("should share one adapter read between definitions with the same key", async () => {
+		// Given
+		const { adapter } = createMemoryAdapter({ count: 7 }, 2);
+		const firstDefinition = createServerStore({ storage: "persistent", key: "shared-hydration", initial: { count: 0 }, adapter });
+		const secondDefinition = createServerStore({ storage: "persistent", key: "shared-hydration", initial: { count: 0 }, adapter });
+
+		// When
+		const [firstState, secondState] = await Promise.all([firstDefinition.hydrate(), secondDefinition.hydrate()]);
+
+		// Then
+		expect(adapter.read).toHaveBeenCalledTimes(1);
+		expect(firstState.count).toEqual(7);
+		expect(secondState.count).toEqual(7);
+	});
+
+	it("should serialize mutations across definitions with the same key", async () => {
+		// Given
+		const slowMiddleware: Middleware<{ count: number }> = async (operation) => {
+			await delay(1);
+
+			return operation.nextState;
+		};
+		const firstDefinition = createServerStore({
+			storage: "persistent",
+			key: "shared-queue",
+			initial: { count: 0 },
+			middleware: [slowMiddleware],
+		});
+		const secondDefinition = createServerStore({
+			storage: "persistent",
+			key: "shared-queue",
+			initial: { count: 0 },
+			middleware: [slowMiddleware],
+		});
+
+		// When
+		await Promise.all([
+			firstDefinition.update((state) => ({ count: state.count + 1 })),
+			secondDefinition.update((state) => ({ count: state.count + 1 })),
+		]);
+
+		// Then
+		expect(firstDefinition.read().count).toEqual(2);
 	});
 });

@@ -159,6 +159,24 @@ export interface StoreConfig<T extends object, D extends object = EmptyDerivedSt
 	storage?: StorageMode;
 
 	/**
+	 * Unique key for a persistent store. When set, the store's state lives in a process-wide
+	 * registry on `globalThis` instead of module scope, so it survives dev hot reloads and is
+	 * shared when a bundler loads the store module more than once (e.g. Next.js page and
+	 * route handler bundles). Every store created with the same key shares one state.
+	 * Ignored in "request" mode.
+	 *
+	 * @example
+	 * ```typescript
+	 * export const flagsStore = createServerStore({
+	 *   storage: "persistent",
+	 *   key: "feature-flags",
+	 *   initial: { betaFeatures: false },
+	 * });
+	 * ```
+	 */
+	key?: string;
+
+	/**
 	 * Enable debug logging to console for development.
 	 * Logs initialization, updates, and state changes.
 	 */

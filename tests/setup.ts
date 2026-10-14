@@ -16,6 +16,11 @@ vi.mock("react", async () => {
 			return ((...args: Parameters<T>): ReturnType<T> => {
 				const currentRequest = getCurrentRequest();
 
+				// Mirrors React: outside a request, cache() calls through without memoizing
+				if (currentRequest === null) {
+					return fn(...args) as ReturnType<T>;
+				}
+
 				if (!resultsByRequest.has(currentRequest)) {
 					resultsByRequest.set(currentRequest, fn(...args) as ReturnType<T>);
 				}

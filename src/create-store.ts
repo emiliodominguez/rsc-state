@@ -27,11 +27,45 @@ interface StoreInstance<T, F> {
 	/** Base state reference that `fullState` was computed from. */
 	derivedSourceState: T | undefined;
 
+	/**
+	 * Derive function that produced `fullState`. Keyed persistent instances can outlive a
+	 * store definition (e.g. across dev hot reloads), so a new derive must not reuse the old memo.
+	 */
+	derivedBy: unknown;
+
 	/** Memoized base + derived state, returned as-is while `state` is unchanged. */
 	fullState: F;
 
 	/** Tail of the mutation queue, or null when no mutation is in flight. */
 	pendingMutation: Promise<void> | null;
+
+	/** In-flight adapter read shared by concurrent callers, or null when idle. */
+	pendingHydration: Promise<void> | null;
+}
+
+const PERSISTENT_REGISTRY_KEY: unique symbol = Symbol.for("rsc-state.persistent-instances");
+
+/**
+ * Global scope augmented with the keyed persistent instance registry.
+ */
+type GlobalScopeWithRegistry = typeof globalThis & {
+	[PERSISTENT_REGISTRY_KEY]?: Map<string, StoreInstance<unknown, unknown>>;
+};
+
+/**
+ * Returns the process-wide registry of keyed persistent instances. It lives on `globalThis`
+ * (under a `Symbol.for` key) so it survives module re-evaluation during dev hot reloads and is
+ * shared when a bundler instantiates the same store module more than once (for example
+ * Next.js page and route handler bundles).
+ *
+ * @returns Registry mapping store keys to instances
+ */
+function getPersistentRegistry(): Map<string, StoreInstance<unknown, unknown>> {
+	const globalScope = globalThis as GlobalScopeWithRegistry;
+
+	globalScope[PERSISTENT_REGISTRY_KEY] ??= new Map();
+
+	return globalScope[PERSISTENT_REGISTRY_KEY];
 }
 
 /**
@@ -164,11 +198,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	 */
 	let persistentInstance: Instance | null = null;
 
-	/**
-	 * In-flight adapter read, shared by every caller that needs hydration so the adapter
-	 * is only read once. Cleared once settled so a failed read can be retried.
-	 */
-	let hydrationInFlight: Promise<void> | null = null;
+	let hasReportedMissingRequestScope = false;
 
 	/**
 	 * Resolves the initial state from configuration, calling the factory when one is provided.
@@ -192,8 +222,10 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 			initialized: false,
 			hydrated: adapter === undefined,
 			derivedSourceState: undefined,
+			derivedBy: undefined,
 			fullState: state as FullState,
 			pendingMutation: null,
+			pendingHydration: null,
 		};
 	}
 
@@ -203,13 +235,57 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 
 	/**
 	 * Returns the process-wide instance used in persistent mode, creating it on first access.
+	 * Keyed stores resolve through the global registry so every definition sharing the key
+	 * shares one instance.
 	 *
 	 * @returns Persistent store instance
 	 */
 	function getPersistentInstance(): Instance {
-		persistentInstance ??= createInstance();
+		persistentInstance ??= configuration.key === undefined ? createInstance() : getOrCreateKeyedInstance(configuration.key);
 
 		return persistentInstance;
+	}
+
+	/**
+	 * Looks up a keyed persistent instance in the global registry, registering a new one on miss.
+	 *
+	 * @param storeKey - Unique store key from configuration
+	 * @returns Shared persistent instance for the key
+	 */
+	function getOrCreateKeyedInstance(storeKey: string): Instance {
+		const registry = getPersistentRegistry();
+		const registeredInstance = registry.get(storeKey);
+
+		if (registeredInstance !== undefined) {
+			return registeredInstance as Instance;
+		}
+
+		const instance = createInstance();
+
+		registry.set(storeKey, instance);
+
+		return instance;
+	}
+
+	/**
+	 * Warns once when React's cache is not memoizing, which happens outside a Server Component
+	 * render (route handlers, Server Actions, Client Components). There, every call gets a fresh
+	 * request instance and writes to a request-scoped store are silently discarded.
+	 *
+	 * @param instance - Instance the current mutation resolved
+	 * @returns void
+	 */
+	function verifyRequestScope(instance: Instance): void {
+		if (isPersistent || hasReportedMissingRequestScope || getRequestScopedInstance() === instance) {
+			return;
+		}
+
+		hasReportedMissingRequestScope = true;
+		console.warn(
+			`${logPrefix} React cache() is not active here, so request-scoped state is discarded after every call. ` +
+				"Request-scoped stores only keep state while React renders Server Components; outside a render " +
+				'(e.g. route handlers or Server Actions) each call gets a fresh instance. Use storage: "persistent" or pass data explicitly.',
+		);
 	}
 
 	const getInstance = isPersistent ? getPersistentInstance : getRequestScopedInstance;
@@ -243,7 +319,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 			return null;
 		}
 
-		hydrationInFlight ??= (async (): Promise<void> => {
+		instance.pendingHydration ??= (async (): Promise<void> => {
 			try {
 				applyStoredState(instance, await adapter.read());
 
@@ -251,11 +327,11 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 					console.log(`${logPrefix} Hydrated:`, instance.state);
 				}
 			} finally {
-				hydrationInFlight = null;
+				instance.pendingHydration = null;
 			}
 		})();
 
-		return hydrationInFlight;
+		return instance.pendingHydration;
 	}
 
 	/**
@@ -409,6 +485,9 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	 */
 	async function mutate(operationType: OperationType, produceNextState: (previousState: State) => State | Promise<State>): Promise<void> {
 		const instance = getInstance();
+
+		verifyRequestScope(instance);
+
 		const transition = await runExclusive(instance, () => applyTransition(instance, operationType, produceNextState));
 
 		if (transition !== null) {
@@ -470,7 +549,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 			return baseState as FullState;
 		}
 
-		if (instance.derivedSourceState !== baseState) {
+		if (instance.derivedSourceState !== baseState || instance.derivedBy !== deriveFunction) {
 			try {
 				instance.fullState = { ...baseState, ...deriveFunction(baseState) };
 			} catch (thrownValue: unknown) {
@@ -479,6 +558,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 			}
 
 			instance.derivedSourceState = baseState;
+			instance.derivedBy = deriveFunction;
 		}
 
 		return instance.fullState;
