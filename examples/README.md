@@ -1,15 +1,16 @@
 # Examples
 
-This folder contains example applications demonstrating `rsc-state` with different Next.js versions.
+This folder contains example applications demonstrating `rsc-state` with Next.js 14, 15 and 16, and with Waku.
 
 ## Available Examples
 
-| Example                                 | Next.js Version | Description                                          |
-| --------------------------------------- | --------------- | ---------------------------------------------------- |
-| [next-14](./next-14/)                   | 14.x            | Basic usage with sync `cookies()` API                |
-| [next-15](./next-15/)                   | 15.x            | Basic usage with async `cookies()` API               |
-| [next-16](./next-16/)                   | 16.x            | Basic usage with latest Next.js                      |
-| [next-16-adapters](./next-16-adapters/) | 16.x            | Storage adapters for persistent state (file, memory) |
+| Example                                 | Next.js Version | Description                                                    |
+| --------------------------------------- | --------------- | -------------------------------------------------------------- |
+| [next-14](./next-14/)                   | 14.x            | Basic usage with sync `cookies()` API                          |
+| [next-15](./next-15/)                   | 15.x            | Basic usage with async `cookies()` API                         |
+| [next-16](./next-16/)                   | 16.x            | Basic usage with latest Next.js                                |
+| [next-16-adapters](./next-16-adapters/) | 16.x            | Storage adapters for persistent state (file, memory)           |
+| [waku](./waku/)                         | Waku 1.0 RC     | Request-scoped store from route params, keyed persistent store |
 
 ## Running an Example
 
@@ -174,6 +175,27 @@ This example also demonstrates:
 - **Derived state**: Compute values from base state
 - **Server actions with async store methods**: All mutating methods return promises
 - **Minimal client components**: Only interactive inputs are client-side
+
+### Waku (waku)
+
+The Waku example initializes a request-scoped store from a route parameter (`/users/[name]`) and reads it in a nested Server Component without props:
+
+```typescript
+export default async function UserPage({ name }: UserPageProps): Promise<React.JSX.Element> {
+	await visitorStore.initialize({ visitorName: name });
+
+	return <Greeting />;
+}
+```
+
+Its `waku.config.ts` dedupes React. That is required here because `rsc-state` is linked from the repository root, which has its own copy of React; monorepos with linked packages need the same setting.
+
+```bash
+cd examples/waku
+npm install
+npm run dev
+# open http://localhost:3000/users/your-name
+```
 
 ## Project Structure
 
