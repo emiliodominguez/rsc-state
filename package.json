@@ -1,7 +1,7 @@
 {
 	"name": "rsc-state",
 	"version": "1.0.0",
-	"description": "Type-safe state management for React Server Components",
+	"description": "Type-safe state management for React Server Components, with derived state, async mutations, middleware and pluggable storage adapters.",
 	"main": "./dist/index.js",
 	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",

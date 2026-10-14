@@ -1,6 +1,12 @@
-# rsc-state
+![rsc-state: Server state. Clearly defined. Cyan state blocks in layered graphite trays.](https://raw.githubusercontent.com/emiliodominguez/rsc-state/main/docs/assets/rsc-state-banner.jpg)
 
-Type-safe state management for React Server Components.
+[![TypeScript: strict](https://img.shields.io/badge/TS-strict-3178c6?style=for-the-badge&labelColor=161b22&logo=typescript&logoColor=white)](./tsconfig.json)
+[![React: Server Components](https://img.shields.io/badge/React-RSC-087ea4?style=for-the-badge&labelColor=161b22&logo=react&logoColor=white)](#features)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3da639?style=for-the-badge&labelColor=161b22&logo=opensourceinitiative&logoColor=white)](./LICENSE)
+
+**Type-safe state for React Server Components.**
+
+Choose request-scoped or shared persistent storage, with derived state, async mutations, middleware and pluggable storage adapters.
 
 ## Features
 
