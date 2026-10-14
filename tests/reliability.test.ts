@@ -377,6 +377,55 @@ describe("concurrency", () => {
 		expect(getStoredValue()).toEqual({ step: 3 });
 	});
 
+	it("should not lose a mutation started synchronously from inside an updater", async () => {
+		// Given
+		const store = createServerStore({ storage: "persistent", initial: { a: 0, b: 0 } });
+		let innerMutation: Promise<void> | undefined;
+
+		// When
+		await store.update((state) => {
+			innerMutation = store.patch({ b: 1 });
+
+			return { ...state, a: 1 };
+		});
+		await innerMutation;
+
+		// Then
+		expect(store.read()).toEqual({ a: 1, b: 1 });
+	});
+
+	it("should queue a mutation started from synchronous middleware after the current one, in call order", async () => {
+		// Given
+		const appliedTags: string[] = [];
+		let hasTriggeredFollowUp = false;
+		const store = createServerStore({
+			storage: "persistent",
+			initial: { tag: "initial" },
+			middleware: [
+				(operation) => {
+					appliedTags.push(operation.nextState.tag);
+
+					if (!hasTriggeredFollowUp) {
+						hasTriggeredFollowUp = true;
+						void store.patch({ tag: "follow-up" });
+					}
+
+					return operation.nextState;
+				},
+			],
+		});
+
+		// When
+		const firstMutation = store.patch({ tag: "first" });
+		const secondMutation = store.patch({ tag: "second" });
+		await Promise.all([firstMutation, secondMutation]);
+		await store.hydrate();
+
+		// Then
+		expect(appliedTags).toEqual(["first", "follow-up", "second"]);
+		expect(store.read().tag).toEqual("second");
+	});
+
 	it("should allow lifecycle callbacks to mutate the same store without deadlocking", async () => {
 		// Given
 		const store = createServerStore({
@@ -838,5 +887,54 @@ describe("hydration debug logging", () => {
 
 		// Then
 		expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining("Hydrated"), { count: 3 });
+	});
+});
+
+describe("deadlock diagnostics", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("should warn when a batch callback deadlocks by awaiting its own store", async () => {
+		// Given
+		vi.useFakeTimers();
+		const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const store = createServerStore({ storage: "persistent", initial: { count: 0 } });
+
+		// When - the patch queues behind the batch that is waiting for it
+		void store.batch(async () => {
+			await store.patch({ count: 1 });
+		});
+		await vi.advanceTimersByTimeAsync(10_000);
+
+		// Then
+		expect(consoleWarn).toHaveBeenCalledTimes(1);
+		expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("deadlocked"));
+	});
+
+	it("should not warn when queued mutations start within the threshold", async () => {
+		// Given
+		vi.useFakeTimers();
+		const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const store = createServerStore({
+			storage: "persistent",
+			initial: { count: 0 },
+			middleware: [
+				async (operation) => {
+					await delay(1_000);
+
+					return operation.nextState;
+				},
+			],
+		});
+
+		// When
+		const mutations = Promise.all([store.patch({ count: 1 }), store.patch({ count: 2 }), store.patch({ count: 3 })]);
+		await vi.advanceTimersByTimeAsync(20_000);
+		await mutations;
+
+		// Then
+		expect(consoleWarn).not.toHaveBeenCalled();
+		expect(store.read().count).toEqual(3);
 	});
 });

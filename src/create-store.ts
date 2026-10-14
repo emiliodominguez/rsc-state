@@ -103,6 +103,12 @@ function getPersistentRegistry(): Map<string, StoreInstance<unknown, unknown>> {
 type ReactModuleWithOptionalCache = Partial<Pick<typeof React, "cache">>;
 
 /**
+ * How long a queued mutation may wait for the store's lock before a warning is logged.
+ * Legitimate waits are bounded by adapter and middleware latency, which is far below this.
+ */
+const LOCK_WAIT_WARNING_MILLISECONDS = 10_000;
+
+/**
  * Debug log label for each operation type.
  */
 const OPERATION_LOG_LABELS: Record<OperationType, string> = {
@@ -159,6 +165,15 @@ function mergePartialState<T extends object, K extends keyof T>(state: T, partia
 	}
 
 	return state;
+}
+
+/**
+ * Placeholder resolver, replaced synchronously by the Promise executor.
+ *
+ * @returns void
+ */
+function ignoreSettlement(): void {
+	// Intentionally empty
 }
 
 /**
@@ -391,6 +406,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	let persistentInstance: Instance | null = null;
 
 	let hasReportedMissingRequestScope = false;
+	let hasReportedLongLockWait = false;
 
 	/**
 	 * Resolves the initial state from configuration, calling the factory when one is provided.
@@ -579,21 +595,30 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	 * When the queue is idle the task starts immediately, which keeps synchronous
 	 * mutations synchronous.
 	 *
+	 * The queue entry is registered before the task starts. Otherwise a mutation started from
+	 * the task's synchronous part (an updater, a synchronous middleware or adapter calling the
+	 * store without awaiting) would see an idle queue, run immediately and then be overwritten
+	 * by the outer task's commit: a lost update.
+	 *
 	 * @param instance - Instance whose mutation queue to join
 	 * @param task - Async task to run exclusively
 	 * @returns Promise resolving to the task's result
 	 */
 	function runExclusive<R>(instance: Instance, task: () => Promise<R>): Promise<R> {
 		const pendingMutation = instance.pendingMutation;
-		const result = pendingMutation === null ? task() : pendingMutation.then(task);
-		const settled: Promise<void> = result.then(releaseLock, releaseLock);
+		let markSettled: () => void = ignoreSettlement;
+		const settled = new Promise<void>((resolve) => {
+			markSettled = resolve;
+		});
 
 		/**
-		 * Marks the queue as idle if no other mutation was queued behind this one.
+		 * Settles this queue entry and marks the queue idle if nothing was queued behind it.
 		 *
 		 * @returns void
 		 */
 		function releaseLock(): void {
+			markSettled();
+
 			if (instance.pendingMutation === settled) {
 				instance.pendingMutation = null;
 			}
@@ -601,7 +626,57 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 
 		instance.pendingMutation = settled;
 
+		const result = pendingMutation === null ? task() : pendingMutation.then(startWatchedWait(task));
+
+		result.then(releaseLock, releaseLock);
+
 		return result;
+	}
+
+	/**
+	 * Wraps a queued task with a watchdog that warns once if it waits too long for the lock.
+	 *
+	 * A middleware, adapter or batch callback that awaits a mutating method of its own store
+	 * waits on itself forever, which for a persistent store stalls every user. Nothing fails
+	 * loudly in that case, so the warning is the only signal. Timers are only armed for mutations
+	 * that actually have to wait, keeping the uncontended path free of timer overhead.
+	 *
+	 * @param task - Task waiting for the lock
+	 * @returns The task, wrapped to disarm the watchdog when it starts
+	 */
+	function startWatchedWait<R>(task: () => Promise<R>): () => Promise<R> {
+		if (hasReportedLongLockWait) {
+			return task;
+		}
+
+		const watchdog = setTimeout(reportLongLockWait, LOCK_WAIT_WARNING_MILLISECONDS);
+
+		// Never keep a Node.js process alive just to print this warning
+		(watchdog as { unref?: () => void }).unref?.();
+
+		return function runWatchedTask(): Promise<R> {
+			clearTimeout(watchdog);
+
+			return task();
+		};
+	}
+
+	/**
+	 * Logs, once per store, that a mutation has been waiting unusually long for the lock.
+	 *
+	 * @returns void
+	 */
+	function reportLongLockWait(): void {
+		if (hasReportedLongLockWait) {
+			return;
+		}
+
+		hasReportedLongLockWait = true;
+		console.warn(
+			`${logPrefix} A mutation has waited more than ${LOCK_WAIT_WARNING_MILLISECONDS / 1000}s for earlier mutations on this store to finish. ` +
+				"If a middleware, adapter or batch callback awaits a mutating method of this same store, the store is deadlocked: " +
+				"use the batch API or move the call to a lifecycle callback. Otherwise an adapter or middleware call is hanging; configure timeouts.",
+		);
 	}
 
 	/**
