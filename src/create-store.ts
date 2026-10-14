@@ -1,4 +1,6 @@
-import { cache } from "react";
+// A namespace import keeps module loading working on React builds without `cache` (stable
+// React 18), where a named import fails at link time; the store reports a clear error instead
+import * as React from "react";
 
 import type { BatchApi, EmptyDerivedState, HydrateOptions, OperationType, ServerStore, StorageMode, StoreConfig, StoreState } from "./types";
 
@@ -67,6 +69,11 @@ function getPersistentRegistry(): Map<string, StoreInstance<unknown, unknown>> {
 
 	return globalScope[PERSISTENT_REGISTRY_KEY];
 }
+
+/**
+ * React module shape as seen at runtime, where `cache` may be missing (stable React 18).
+ */
+type ReactModuleWithOptionalCache = Partial<Pick<typeof React, "cache">>;
 
 /**
  * Debug log label for each operation type.
@@ -229,9 +236,27 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 		};
 	}
 
-	// React cache invalidates automatically per request, ensuring
-	// no state leakage between different user requests
-	const getRequestScopedInstance = cache(createInstance);
+	/**
+	 * Builds the request-scoped instance accessor on top of React's cache(). Fails at store
+	 * creation, with guidance, when the running React build does not provide cache().
+	 *
+	 * @returns Accessor returning the current request's instance
+	 */
+	function createRequestScopedAccessor(): () => Instance {
+		const reactCache = (React as ReactModuleWithOptionalCache).cache;
+
+		if (typeof reactCache !== "function") {
+			throw new Error(
+				`${logPrefix} Request-scoped stores require React's cache(), which this React build does not provide. ` +
+					"It is available in React 19 and in frameworks that bundle a React canary (such as the Next.js 14 App Router). " +
+					'Upgrade to React 19, or use storage: "persistent" for state that is not request-specific.',
+			);
+		}
+
+		// React cache invalidates automatically per request, ensuring
+		// no state leakage between different user requests
+		return reactCache(createInstance);
+	}
 
 	/**
 	 * Returns the process-wide instance used in persistent mode, creating it on first access.
@@ -277,7 +302,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 	 * @returns void
 	 */
 	function verifyRequestScope(instance: Instance): void {
-		if (isPersistent || hasReportedMissingRequestScope || getRequestScopedInstance() === instance) {
+		if (isPersistent || hasReportedMissingRequestScope || getInstance() === instance) {
 			return;
 		}
 
@@ -291,7 +316,7 @@ export function createServerStore<T extends object, D extends object = EmptyDeri
 		);
 	}
 
-	const getInstance = isPersistent ? getPersistentInstance : getRequestScopedInstance;
+	const getInstance = isPersistent ? getPersistentInstance : createRequestScopedAccessor();
 
 	/**
 	 * Applies state loaded from the adapter. A null or undefined value means nothing has been

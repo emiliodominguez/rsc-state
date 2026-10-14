@@ -30,23 +30,25 @@ npm install rsc-state
 
 ## Compatibility
 
-| Requirement | Supported                   | Verified with                                                       |
-| ----------- | --------------------------- | ------------------------------------------------------------------- |
-| React       | `^18.3.0 \|\| ^19.0.0`      | 18.3.1, 19.3.0                                                      |
-| TypeScript  | Inferred types, no generics | 6.0 and 7.0 (`skipLibCheck: false`, `nodenext` and `bundler` modes) |
-| Runtime     | Any RSC server runtime      | Node.js 22; the library uses no Node-specific APIs                  |
-| Modules     | ESM and CommonJS            | `publint` and `arethetypeswrong` clean                              |
+| Requirement | Supported                                            | Verified with                                                       |
+| ----------- | ---------------------------------------------------- | ------------------------------------------------------------------- |
+| React       | 19.x; 18.3 only via a framework-bundled React canary | 19.3.0; Next.js 14 (bundled `18.3.0-canary`)                        |
+| TypeScript  | Inferred types, no generics                          | 6.0 and 7.0 (`skipLibCheck: false`, `nodenext` and `bundler` modes) |
+| Runtime     | Any RSC server runtime                               | Node.js 22; the library uses no Node-specific APIs                  |
+| Modules     | ESM and CommonJS                                     | `publint` and `arethetypeswrong` clean                              |
+
+Request-scoped stores need React's `cache()`. Stable React 18 doesn't export it, so on React 18 they only work inside frameworks that render with a bundled React canary, such as the Next.js 14 App Router. Elsewhere on React 18, creating a request-scoped store throws an error explaining this; persistent stores work on any React version.
 
 ### Frameworks
 
 Request-scoped stores work in any framework that renders React Server Components, because they rely only on React's `cache`. Each framework below was verified with a production build and concurrent requests for different users: every response rendered only its own user's state.
 
-| Framework      | Verified version                      | Framework RSC status | rsc-state                                                              |
-| -------------- | ------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
-| Next.js        | 14.2.35 (React 18.3), 15.5.27, 16.4.0 | Stable               | ✅ Supported ([examples](#examples))                                   |
-| Waku           | 1.0.0-rc.3                            | Release candidate    | ✅ Supported ([example](./examples/waku))                              |
-| React Router   | 8.4.0, RSC framework mode             | Experimental         | ✅ Works; initialize in `ServerComponent`, not in `loader`             |
-| TanStack Start | 1.169.1 with `rsc.enabled`            | Experimental         | ✅ Works; initialize inside the tree passed to `renderServerComponent` |
+| Framework      | Verified version                                | Framework RSC status | rsc-state                                                              |
+| -------------- | ----------------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
+| Next.js        | 14.2.35 (bundled React canary), 15.5.27, 16.4.0 | Stable               | ✅ Supported ([examples](#examples))                                   |
+| Waku           | 1.0.0-rc.3                                      | Release candidate    | ✅ Supported ([example](./examples/waku))                              |
+| React Router   | 8.4.0, RSC framework mode                       | Experimental         | ✅ Works; initialize in `ServerComponent`, not in `loader`             |
+| TanStack Start | 1.169.1 with `rsc.enabled`                      | Experimental         | ✅ Works; initialize inside the tree passed to `renderServerComponent` |
 
 React Router 8.4.0's RSC build fails with `@vitejs/plugin-rsc` 0.5.36 and later ("Vite RSC assets manifest not found"), independently of rsc-state; 0.5.35 works.
 
