@@ -156,6 +156,12 @@ export const settingsStore = createServerStore({
 });
 ```
 
+Load persisted state before reading with `hydrate()` (wrapped in React's `cache()` so it runs once per request):
+
+```typescript
+export const getSettings = cache(async () => settingsStore.hydrate({ force: true }));
+```
+
 This example also demonstrates:
 
 - **Middleware**: Intercept and log state operations

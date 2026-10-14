@@ -296,7 +296,11 @@ Closes #123
 npm test              # Run tests once
 npm run test:watch    # Watch mode
 npm run test:coverage # With coverage report
+npm run bench         # Read/write throughput benchmarks
 ```
+
+Type-level tests live in `tests/*.test-d.ts` and run as part of `npm test` (Vitest typecheck).
+Use `simulateNewRequest()` from `tests/request-scope.ts` to emulate a new server request in tests.
 
 Coverage targets:
 
@@ -388,9 +392,9 @@ npm run changeset:publish  # Publish to npm
 
 ### Add New API Method
 
-1. Update `types.d.ts` with interface definition
+1. Update `src/types.ts` with interface definition
 2. Implement in `create-store.ts` with full JSDoc
-3. Add tests in `tests/store.test.ts`
+3. Add tests in `tests/store.test.ts` (core behavior), `tests/reliability.test.ts` (concurrency, hydration, consistency) and `tests/types.test-d.ts` (type inference)
 4. Export from `src/index.ts`
 5. Document in README.md
 6. Create changeset

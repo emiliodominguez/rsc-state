@@ -6,19 +6,21 @@
 
 **Type-safe state for React Server Components.**
 
-Choose request-scoped or shared persistent storage, with derived state, async mutations, middleware and pluggable storage adapters.
+Choose request-scoped or shared persistent storage, with inferred derived state, middleware, transactional batches and pluggable storage adapters.
 
 ## Features
 
 - **Two storage modes**: Request-scoped (isolated per user) or persistent (shared across requests)
-- **Type-safe**: Full TypeScript inference with derived state
+- **Type-safe**: Base and derived state inferred from `initial` and `derive`, no generics needed
 - **Zero client JS**: Purely server-side using React's [`cache`](https://react.dev/reference/react/cache) API
 - **No hooks needed**: Direct read/write API for Server Components
-- **Derived state**: Compute values automatically from base state (memoized for performance)
-- **Middleware**: Intercept and transform state operations with async support
-- **Storage adapters**: Pluggable backends for persistent mode (Redis, database, etc.)
+- **Derived state**: Memoized per state reference; `read()` returns a stable object and never allocates on a cache hit
+- **Middleware**: Transform, validate or veto state transitions, sync or async
+- **Storage adapters**: Pluggable backends for persistent mode, with explicit `hydrate()` and write-before-commit consistency
+- **Concurrency-safe**: Mutations on a store are serialized, so concurrent calls never lose updates
+- **Transactional batches**: Sync or async, committed atomically, rolled back on error
+- **No-op detection**: Unchanged updates skip middleware, adapter writes and callbacks
 - **Async callbacks**: `onInitialize`, `onUpdate`, `onReset` support async operations
-- **Batch updates**: Combine multiple updates for better performance
 
 ## Installation
 
@@ -26,13 +28,13 @@ Choose request-scoped or shared persistent storage, with derived state, async mu
 npm install rsc-state
 ```
 
-## Migration from v1.x to v2.x
+## Migration from v0.x to v1.x
 
-Version 2.0 introduces an async-first architecture. All state-mutating methods now return promises.
+Version 1.0 introduced an async-first architecture. All state-mutating methods return promises.
 
 ### Breaking Changes
 
-| Method         | v1.x   | v2.0             |
+| Method         | v0.x   | v1.x             |
 | -------------- | ------ | ---------------- |
 | `initialize()` | `void` | `Promise<void>`  |
 | `update()`     | `void` | `Promise<void>`  |
@@ -48,13 +50,13 @@ Version 2.0 introduces an async-first architecture. All state-mutating methods n
 1. Add `await` before all state-mutating calls:
 
 ```typescript
-// Before (v1.x)
+// Before (v0.x)
 userStore.initialize({ userId: "123", userName: "John" });
 userStore.update((state) => ({ ...state, count: state.count + 1 }));
 userStore.set({ userId: null, userName: "" });
 userStore.reset();
 
-// After (v2.0)
+// After (v1.x)
 await userStore.initialize({ userId: "123", userName: "John" });
 await userStore.update((state) => ({ ...state, count: state.count + 1 }));
 await userStore.set({ userId: null, userName: "" });
@@ -64,14 +66,14 @@ await userStore.reset();
 2. Ensure your Server Components and layouts are async:
 
 ```typescript
-// Before (v1.x)
+// Before (v0.x)
 export default function RootLayout({ children }) {
   userStore.initialize({ userId: "123" });
 
   return <html><body>{children}</body></html>;
 }
 
-// After (v2.0)
+// After (v1.x)
 export default async function RootLayout({ children }) {
   await userStore.initialize({ userId: "123" });
 
@@ -115,7 +117,7 @@ const settingsStore = createServerStore({
 
 **Use for:** Feature flags, app-wide configuration, demos/prototypes.
 
-**Warning:** Not suitable for user-specific data. State is lost on server restart and not synced across server instances.
+**Warning:** Not suitable for user-specific data. Without an adapter, state is lost on server restart and not synced across server instances. Use a [storage adapter](#storage-adapters) to persist it.
 
 ## Quick Start
 
@@ -228,29 +230,30 @@ Creates a new server store.
 | -------------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
 | `initial`      | `T \| () => T`                                                      | Initial state value or factory function               |
 | `storage`      | `"request" \| "persistent"`                                         | Storage mode (default: `"request"`)                   |
-| `derive`       | `(state: T) => D`                                                   | Optional function to compute derived state (memoized) |
+| `derive`       | `(state: T) => D`                                                   | Derived state, inferred and memoized per state        |
 | `middleware`   | `Middleware<T>[]`                                                   | Array of middleware functions to intercept operations |
 | `adapter`      | `StorageAdapter<T>`                                                 | Storage adapter for persistent mode                   |
 | `debug`        | `boolean`                                                           | Enable debug logging                                  |
 | `onInitialize` | `(state: T) => void \| Promise<void>`                               | Callback after store initialization                   |
-| `onUpdate`     | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after state updates                          |
-| `onReset`      | `() => void \| Promise<void>`                                       | Callback after store reset                            |
-| `onError`      | `(error: Error, context: ErrorContext<T>) => void \| Promise<void>` | Callback when derive function throws                  |
+| `onUpdate`     | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after effective state changes                |
+| `onReset`      | `(prev: T, next: T) => void \| Promise<void>`                       | Callback after store reset                            |
+| `onError`      | `(error: Error, context: ErrorContext<T>) => void \| Promise<void>` | Callback when derive throws (once per failing state)  |
 
 **Returns:** `ServerStore<T, D>` instance
 
 ### Store Methods
 
-| Method              | Description                                                  |
-| ------------------- | ------------------------------------------------------------ |
-| `initialize(state)` | Initialize store with values (async, for request-scoped)     |
-| `read()`            | Read current state including derived properties (sync)       |
-| `update(fn)`        | Update state via reducer: `(prev) => next` (async)           |
-| `set(state)`        | Replace entire state (async)                                 |
-| `patch(partial)`    | Partially update state by merging (async)                    |
-| `select(fn)`        | Select specific value: `(state) => value` (sync)             |
-| `reset()`           | Reset to initial state (async)                               |
-| `batch(fn)`         | Execute multiple updates, compute derived state once (async) |
+| Method              | Description                                                                   |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `initialize(state)` | Initialize store with values (async, for request-scoped)                      |
+| `hydrate(options?)` | Load state from the adapter and return full state (async)                     |
+| `read()`            | Read current state including derived properties (sync, stable ref)            |
+| `update(fn)`        | Update state via reducer: `(prev) => next` (async)                            |
+| `set(state)`        | Replace entire state (async)                                                  |
+| `patch(partial)`    | Shallow-merge into state; no-op if nothing changed (async)                    |
+| `select(fn)`        | Select specific value: `(state) => value` (sync)                              |
+| `reset()`           | Reset to initial state (async)                                                |
+| `batch(fn)`         | Apply several changes atomically; sync or async callback, rolls back on throw |
 
 ### Middleware
 
@@ -284,9 +287,14 @@ Middleware receives:
 Middleware can:
 
 - Log state changes
-- Validate state
+- Validate state (throwing rejects the operation; nothing is committed)
 - Transform state before it's applied
+- Veto a transition by returning `operation.previousState` (`update`, `set`, `patch`, `batch`)
 - Perform async operations
+
+Middleware must return a state object; returning `undefined` (a forgotten `return`) throws a descriptive `TypeError` instead of corrupting the store.
+
+> Middleware runs while the store holds its mutation lock. Don't `await` mutating methods of the **same** store inside middleware or a batch callback: that waits on itself. Lifecycle callbacks (`onUpdate`, etc.) run after the lock is released and may mutate the store freely.
 
 ### Storage Adapters
 
@@ -310,6 +318,22 @@ const store = createServerStore({
 	initial: { theme: "light" },
 	adapter: redisAdapter,
 });
+
+// Load persisted state before the first read
+const settings = await store.hydrate();
+```
+
+How adapters behave:
+
+- **Hydration**: `read()` is synchronous and can't wait for I/O, so call `await store.hydrate()` before the first read (for example in a cached loader). Mutating methods hydrate automatically. Concurrent callers share one adapter read; a failed read is retried on the next call.
+- **Multi-instance deployments**: `hydrate({ force: true })` re-reads the adapter after pending mutations finish. Wrap it in React's `cache()` to re-sync once per request.
+- **Consistency**: the adapter is written _before_ the in-memory commit. If `write()` throws, the store keeps its previous state and the error propagates to the caller.
+- **Empty storage**: `read()` returning `null` or `undefined` keeps the configured initial state.
+
+```typescript
+import { cache } from "react";
+
+export const getSettings = cache(() => settingsStore.hydrate({ force: true }));
 ```
 
 ### Patch Method
@@ -329,7 +353,7 @@ await store.patch({ userName: "John", email: "john@example.com" });
 
 ### Derived State Memoization
 
-Derived state is automatically memoized and only recalculated when the base state changes:
+Derived state is memoized per base state reference. On a cache hit `read()` returns the exact same object, so it's free to call from every component:
 
 ```typescript
 const store = createServerStore({
@@ -342,10 +366,12 @@ const store = createServerStore({
 });
 
 store.read(); // Computes derived state
-store.read(); // Returns cached result (no recomputation)
+store.read() === store.read(); // true: cached object, no recomputation, no allocation
 await store.update((s) => ({ items: [...s.items, 5] }));
 store.read(); // Recomputes derived state
 ```
+
+State is treated as immutable: always return new objects from `update()`. Returning the same reference (or a `patch()` whose values are all identical) is a no-op that skips middleware, adapter writes and `onUpdate`.
 
 ### Lifecycle Hooks
 
@@ -390,9 +416,11 @@ const store = createServerStore({
 const state = store.read(); // { data: null } - no crash!
 ```
 
+`onError` fires once per failing state rather than on every read. If `onError` itself throws or rejects, the failure is logged instead of crashing the render or leaking an unhandled rejection.
+
 ### Batch Updates
 
-Combine multiple updates for better performance:
+Combine multiple updates into one atomic transition. Changes are applied to a private draft; middleware, the adapter write and `onUpdate` run once when the callback settles:
 
 ```typescript
 const store = createServerStore({
@@ -419,7 +447,45 @@ await store.batch((api) => {
 	api.patch({ count: 10 });
 	api.patch({ name: "Updated" });
 });
+
+// Async transactions: rolled back if anything throws
+await cartStore.batch(async (api) => {
+	const prices = await fetchPrices(api.read().items); // api.read() sees the draft
+	api.patch({ prices });
+});
 ```
+
+If the callback throws or rejects, nothing is committed. Calling the batch API after the callback settled throws.
+
+### Concurrency
+
+Mutations on a store instance are queued and applied one at a time, in call order. Concurrent calls (e.g. `Promise.all` in a Server Action, or simultaneous requests hitting a persistent store) can't overwrite each other, even with async middleware or adapters:
+
+```typescript
+await Promise.all(Array.from({ length: 10 }, () => counterStore.update((s) => ({ count: s.count + 1 }))));
+
+counterStore.read().count; // 10
+```
+
+When no middleware, adapter or batch callback needs to await anything, the mutation commits synchronously, in the same tick it was called. Always `await` mutating methods anyway; that's the only behavior the API guarantees.
+
+## Performance
+
+`npm run bench` (Node 22, persistent store, 200-item derived cart):
+
+| Operation                        | ops/s (v1.0.0) | ops/s (current) |
+| -------------------------------- | -------------- | --------------- |
+| `read()` with memoized derive    | 8.1M           | 13.2M           |
+| `select()` with memoized derive  | 7.1M           | 12.2M           |
+| `patch()`                        | 1.0M           | 1.4M            |
+| `batch()` with 10 updates        | 0.77M          | 1.39M           |
+| `patch()` + `read()` with derive | 0.31M          | 0.52M           |
+
+Where it comes from:
+
+- `read()` returns a cached merged object instead of spreading base and derived state on every call
+- Mutations skip every `await` that isn't needed (no adapter, no middleware, sync callbacks)
+- No-op updates skip middleware, adapter writes, derive recomputation and callbacks
 
 ## Examples
 
@@ -479,7 +545,7 @@ Uses module-level variables:
 - State persists in Node.js process memory
 - Shared across all requests and users
 - Lost on server restart or deployment
-- Can use storage adapters for external persistence (Redis, database, etc.)
+- Can use storage adapters for external persistence (Redis, database, etc.), loaded with `hydrate()`
 
 ## TypeScript
 
@@ -505,7 +571,22 @@ state.invalidProperty;
 // patch() is type-safe
 await store.patch({ userName: "John" }); // ✅
 await store.patch({ invalidKey: "value" }); // ❌ Type error
+
+// Reuse the full state type elsewhere
+import type { InferStoreState } from "rsc-state";
+type UserState = InferStoreState<typeof store>;
 ```
+
+Let inference do the work. Passing explicit generics (`createServerStore<MyState>(...)`) disables inference of the derived type, because TypeScript can't partially infer type arguments. To type the state precisely, annotate `initial` instead:
+
+```typescript
+const store = createServerStore({
+	initial: { theme: "light" } as Settings,
+	derive: (state) => ({ isDarkMode: state.theme === "dark" }),
+});
+```
+
+Interfaces work as state types.
 
 ## Contributing
 

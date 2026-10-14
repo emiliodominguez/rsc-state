@@ -16,6 +16,7 @@ npm install
 npm test              # Run once
 npm run test:watch    # Watch mode
 npm run test:coverage # With coverage
+npm run bench         # Benchmarks
 ```
 
 ## Code Style
