@@ -28,6 +28,28 @@ Choose request-scoped or shared persistent storage, with inferred derived state,
 npm install rsc-state
 ```
 
+## Compatibility
+
+| Requirement | Supported                   | Verified with                                                       |
+| ----------- | --------------------------- | ------------------------------------------------------------------- |
+| React       | `^18.3.0 \|\| ^19.0.0`      | 18.3.1, 19.3.0                                                      |
+| TypeScript  | Inferred types, no generics | 6.0 and 7.0 (`skipLibCheck: false`, `nodenext` and `bundler` modes) |
+| Runtime     | Any RSC server runtime      | Node.js 22; the library uses no Node-specific APIs                  |
+| Modules     | ESM and CommonJS            | `publint` and `arethetypeswrong` clean                              |
+
+### Frameworks
+
+Request-scoped stores work in any framework that renders React Server Components, because they rely only on React's `cache`. Each framework below was verified with a production build and concurrent requests for different users: every response rendered only its own user's state.
+
+| Framework      | Verified version                      | Framework RSC status | rsc-state                                                              |
+| -------------- | ------------------------------------- | -------------------- | ---------------------------------------------------------------------- |
+| Next.js        | 14.2.35 (React 18.3), 15.5.27, 16.4.0 | Stable               | ✅ Supported ([examples](#examples))                                   |
+| Waku           | 1.0.0-rc.3                            | Release candidate    | ✅ Supported ([example](./examples/waku))                              |
+| React Router   | 8.4.0, RSC framework mode             | Experimental         | ✅ Works; initialize in `ServerComponent`, not in `loader`             |
+| TanStack Start | 1.169.1 with `rsc.enabled`            | Experimental         | ✅ Works; initialize inside the tree passed to `renderServerComponent` |
+
+React Router 8.4.0's RSC build fails with `@vitejs/plugin-rsc` 0.5.36 and later ("Vite RSC assets manifest not found"), independently of rsc-state; 0.5.35 works.
+
 ## Migration from v0.x to v1.x
 
 Version 1.0 introduced an async-first architecture. All state-mutating methods return promises.
@@ -96,7 +118,24 @@ const userStore = createServerStore({
 
 **Use for:** User sessions, authentication, user preferences, any user-specific data.
 
-**Where it works:** while React renders Server Components (layouts, pages, components). Outside a render (route handlers, Client Components and, depending on the framework, Server Actions) React's `cache` doesn't memoize, so every call gets a fresh instance and writes are discarded. The store warns once when it detects this. In Server Actions, persist changes to cookies or a database and revalidate, as shown below.
+**Where it works:** while React renders Server Components. Outside a render React's `cache` doesn't memoize, so every call gets a fresh instance and writes are discarded. The store warns once when it detects this.
+
+| Framework      | Initialize the store in                                             | Not in (runs outside the render)                                        |
+| -------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Next.js        | Layouts, pages, Server Components                                   | Route handlers, middleware                                              |
+| Waku           | Pages, layouts, Server Components                                   | Middleware, API routes                                                  |
+| React Router   | `ServerComponent` of a route or layout                              | `loader`, `action`; return data and initialize in the component instead |
+| TanStack Start | A Server Component inside the tree given to `renderServerComponent` | The server function body before `renderServerComponent`                 |
+
+In TanStack Start each `renderServerComponent` call is its own React request, so state doesn't carry over between two calls. In Server Actions, persist changes to cookies or a database and revalidate, as shown below.
+
+**Troubleshooting:** if the "React cache() is not active" warning appears _during_ a render, rsc-state is importing a different copy of React than your app renders with. This happens with linked or workspace packages (`file:`, `link:`, monorepos). Dedupe React in your bundler, for example in Vite:
+
+```typescript
+export default defineConfig({
+	resolve: { dedupe: ["react", "react-dom"] },
+});
+```
 
 **How it works:**
 
@@ -508,7 +547,7 @@ Where it comes from:
 
 ## Examples
 
-Working examples are available for different Next.js versions:
+Working examples:
 
 | Version               | Directory                                                  | Notes                                    |
 | --------------------- | ---------------------------------------------------------- | ---------------------------------------- |
@@ -516,14 +555,15 @@ Working examples are available for different Next.js versions:
 | Next.js 15            | [`examples/next-15`](./examples/next-15)                   | Async `cookies()` API, Turbopack         |
 | Next.js 16            | [`examples/next-16`](./examples/next-16)                   | Async `cookies()` API, Turbopack default |
 | Next.js 16 + Adapters | [`examples/next-16-adapters`](./examples/next-16-adapters) | Storage adapters with file persistence   |
+| Waku 1.0              | [`examples/waku`](./examples/waku)                         | Route params, keyed persistent store     |
 
 ```bash
-cd examples/next-15  # or next-14, next-16, next-16-adapters
+cd examples/next-15  # or next-14, next-16, next-16-adapters, waku
 npm install
 npm run dev
 ```
 
-Each example demonstrates:
+Each Next.js example demonstrates:
 
 - **Both storage modes** side by side
 - Request-scoped user store with cookie persistence
@@ -537,15 +577,6 @@ The **adapters example** additionally shows:
 - In-memory adapter for comparison
 - State that survives server restarts
 - Middleware for logging operations
-
-### Framework Support
-
-| Framework      | RSC Status     | Support         |
-| -------------- | -------------- | --------------- |
-| Next.js 14+    | Stable         | ✅ Full support |
-| React Router 7 | Preview        | ⏳ Coming soon  |
-| TanStack Start | In development | ⏳ Coming soon  |
-| Waku           | Stable         | ⏳ Planned      |
 
 ## How It Works
 
