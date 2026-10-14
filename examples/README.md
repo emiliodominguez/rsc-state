@@ -75,16 +75,22 @@ export const userStore = createServerStore({
 The examples use React's `cache()` API to ensure user state is initialized once per request:
 
 ```typescript
-// Next.js 14 (sync)
-export const getUser = cache(() => {
+// Next.js 14 (sync cookies(), async store)
+export const getUser = cache(async () => {
 	const userCookie = cookies().get(USER_COOKIE);
 
 	if (userCookie) {
-		userStore.initialize(JSON.parse(userCookie.value));
+		await userStore.initialize(JSON.parse(userCookie.value));
 	}
 
 	return userStore.read();
 });
+
+// Components must await it
+export async function Header() {
+	const user = await getUser();
+	// ...
+}
 
 // Next.js 15+ (async)
 export const getUser = cache(async () => {

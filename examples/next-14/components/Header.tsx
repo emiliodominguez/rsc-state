@@ -2,8 +2,8 @@ import Link from "next/link";
 
 import { getUser, featureFlagsStore } from "@/lib/stores";
 
-export function Header(): React.ReactNode {
-	const user = getUser();
+export async function Header(): Promise<React.JSX.Element> {
+	const user = await getUser();
 	const featureFlags = featureFlagsStore.read();
 
 	return (

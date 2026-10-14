@@ -1,7 +1,7 @@
 import { getUser, featureFlagsStore } from "@/lib/stores";
 
-export default function AboutPage(): React.ReactNode {
-	const user = getUser();
+export default async function AboutPage(): Promise<React.ReactNode> {
+	const user = await getUser();
 	const featureFlags = featureFlagsStore.read();
 
 	return (

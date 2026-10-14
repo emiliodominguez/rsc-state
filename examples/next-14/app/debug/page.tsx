@@ -104,9 +104,9 @@ function FinalStateDisplay(): React.ReactNode {
 	);
 }
 
-export default function DebugPage(): React.ReactNode {
+export default async function DebugPage(): Promise<React.ReactNode> {
 	// Call getUser to ensure the store is hydrated (for theme on body)
-	getUser();
+	await getUser();
 
 	// Generate a unique ID for this request
 	const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

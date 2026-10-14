@@ -10,8 +10,8 @@ import {
 } from "@/lib/actions";
 import { getUser, featureFlagsStore, errorDemoStore } from "@/lib/stores";
 
-export default function HomePage(): React.ReactNode {
-	const user = getUser();
+export default async function HomePage(): Promise<React.ReactNode> {
+	const user = await getUser();
 	const featureFlags = featureFlagsStore.read();
 	const errorDemo = errorDemoStore.read();
 
