@@ -4,6 +4,7 @@ import { createServerStore } from "rsc-state";
 import type { StorageAdapter } from "rsc-state";
 
 import { readDataFile, writeDataFile } from "./file-adapter";
+import type { SettingsState } from "./file-adapter";
 
 /**
  * JSON file storage adapter.
@@ -28,16 +29,6 @@ const jsonFileAdapter: StorageAdapter<SettingsState> = {
 		await writeDataFile(state);
 	},
 };
-
-/**
- * Settings state shape.
- */
-interface SettingsState {
-	theme: "light" | "dark";
-	language: "en" | "es" | "fr";
-	notifications: boolean;
-	volume: number;
-}
 
 /**
  * Settings store with file-based persistence.

@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 
 import { settingsStore, counterStore } from "./stores";
-import { deleteDataFile } from "./file-adapter";
+import { deleteDataFile, isSupportedLanguage, isValidVolume } from "./file-adapter";
+
+// These actions change persistent state shared by every visitor. Server Actions are public HTTP
+// endpoints that anyone can call directly, so a real app must authorize the caller (for example,
+// require an admin session) and validate every input before mutating a persistent store. This
+// demo deliberately lets any visitor change the settings, but still validates the input.
 
 /**
  * Toggle theme between light and dark.
@@ -21,7 +26,12 @@ export async function toggleTheme(): Promise<void> {
  * Change language setting.
  */
 export async function changeLanguage(formData: FormData): Promise<void> {
-	const language = formData.get("language") as "en" | "es" | "fr";
+	const language = formData.get("language");
+
+	// Server Actions are public endpoints: never persist unvalidated input for every visitor
+	if (!isSupportedLanguage(language)) {
+		return;
+	}
 
 	await settingsStore.patch({ language });
 
@@ -44,7 +54,12 @@ export async function toggleNotifications(): Promise<void> {
  * Set volume level.
  */
 export async function setVolume(formData: FormData): Promise<void> {
-	const volume = parseInt(formData.get("volume") as string, 10);
+	const volumeInput = formData.get("volume");
+	const volume = typeof volumeInput === "string" ? Number(volumeInput) : Number.NaN;
+
+	if (!isValidVolume(volume)) {
+		return;
+	}
 
 	await settingsStore.patch({ volume });
 

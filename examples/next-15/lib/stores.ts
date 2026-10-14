@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 
 import { createServerStore } from "rsc-state";
 
-const USER_COOKIE = "user_session";
+import { SESSION_COOKIE, decodeSession } from "./session";
 
 /**
  * Feature flags store - PERSISTENT storage mode.
@@ -104,22 +104,19 @@ export const userStore = createServerStore({
 });
 
 /**
- * Cached function to get user data from cookie and initialize store.
+ * Cached function to get user data from the signed session cookie and initialize the store.
  * Uses React's cache() to ensure this only runs once per request.
  * Call this in any Server Component that needs user data.
+ *
+ * Never initialize a store from raw cookie contents: only a verified, validated session
+ * reaches `initialize()`, so a tampered cookie renders the visitor as signed out.
  */
 export const getUser = cache(async () => {
 	const cookieStore = await cookies();
-	const userCookie = cookieStore.get(USER_COOKIE);
+	const session = decodeSession(cookieStore.get(SESSION_COOKIE)?.value);
 
-	if (userCookie) {
-		try {
-			const userData = JSON.parse(userCookie.value);
-
-			await userStore.initialize(userData);
-		} catch {
-			// Invalid cookie
-		}
+	if (session) {
+		await userStore.initialize(session);
 	}
 
 	return userStore.read();

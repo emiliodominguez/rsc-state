@@ -39,3 +39,6 @@ Thumbs.db
 examples/*/next-env.d.ts
 examples/*/AGENTS.md
 examples/waku/src/pages.gen.ts
+
+# TypeScript incremental build caches
+*.tsbuildinfo

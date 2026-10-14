@@ -1,39 +1,41 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 
+import { SESSION_COOKIE, SESSION_COOKIE_OPTIONS, decodeSession, encodeSession, parseLoginForm } from "./session";
 import { featureFlagsStore, errorDemoStore } from "./stores";
 
-const USER_COOKIE = "user_session";
-
 /**
- * Authenticate user by creating a session cookie with user data from form submission.
- * Generates a unique user ID and stores user preferences in an HTTP-only cookie.
+ * Demo sign-in: creates a signed session cookie from the submitted name and email.
+ * Invalid input is ignored. A real app would verify credentials before this point.
  *
  * @param formData - Form data containing userName and userEmail fields
  */
 export async function login(formData: FormData): Promise<void> {
-	const userData = {
-		userId: `user-${Date.now()}`,
-		userName: formData.get("userName") as string,
-		userEmail: formData.get("userEmail") as string,
-		theme: "light",
-		preferences: {
-			notifications: true,
-			newsletter: false,
-		},
-	};
+	const loginForm = parseLoginForm(formData);
+
+	if (!loginForm) {
+		return;
+	}
 
 	const cookieStore = await cookies();
 
-	cookieStore.set(USER_COOKIE, JSON.stringify(userData), {
-		httpOnly: true,
-		secure: process.env.NODE_ENV === "production",
-		sameSite: "lax",
-		maxAge: 60 * 60 * 24 * 7,
-		path: "/",
-	});
+	cookieStore.set(
+		SESSION_COOKIE,
+		encodeSession({
+			userId: `user-${randomUUID()}`,
+			...loginForm,
+			theme: "light",
+			preferences: {
+				notifications: true,
+				newsletter: false,
+			},
+		}),
+		SESSION_COOKIE_OPTIONS,
+	);
 
 	revalidatePath("/", "layout");
 }
@@ -45,7 +47,7 @@ export async function login(formData: FormData): Promise<void> {
 export async function logout(): Promise<void> {
 	const cookieStore = await cookies();
 
-	cookieStore.delete(USER_COOKIE);
+	cookieStore.delete(SESSION_COOKIE);
 	revalidatePath("/", "layout");
 }
 
@@ -56,27 +58,19 @@ export async function logout(): Promise<void> {
  */
 export async function toggleTheme(): Promise<void> {
 	const cookieStore = await cookies();
-	const userCookie = cookieStore.get(USER_COOKIE);
+	const session = decodeSession(cookieStore.get(SESSION_COOKIE)?.value);
 
-	if (userCookie) {
-		try {
-			const userData = JSON.parse(userCookie.value);
-			const newTheme = userData.theme === "light" ? "dark" : "light";
-
-			cookieStore.set(USER_COOKIE, JSON.stringify({ ...userData, theme: newTheme }), {
-				httpOnly: true,
-				secure: process.env.NODE_ENV === "production",
-				sameSite: "lax",
-				maxAge: 60 * 60 * 24 * 7,
-				path: "/",
-			});
-		} catch {
-			// Invalid cookie
-		}
+	if (session) {
+		cookieStore.set(SESSION_COOKIE, encodeSession({ ...session, theme: session.theme === "light" ? "dark" : "light" }), SESSION_COOKIE_OPTIONS);
 	}
 
 	revalidatePath("/", "layout");
 }
+
+// The actions below change persistent state for every visitor. Server Actions are public HTTP
+// endpoints that anyone can call directly, so a real app must authorize the caller (for example,
+// require an admin session) before mutating a persistent store. This demo deliberately lets any
+// visitor toggle them.
 
 /**
  * Toggle beta features using update() method.
