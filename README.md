@@ -129,7 +129,7 @@ const userStore = createServerStore({
 | React Router   | `ServerComponent` of a route or layout                              | `loader`, `action`; return data and initialize in the component instead |
 | TanStack Start | A Server Component inside the tree given to `renderServerComponent` | The server function body before `renderServerComponent`                 |
 
-In TanStack Start each `renderServerComponent` call is its own React request, so state doesn't carry over between two calls. In Server Actions, persist changes to cookies or a database and revalidate, as shown below.
+In TanStack Start each `renderServerComponent` call is its own React request, so state doesn't carry over between two calls. Likewise, Next.js `"use cache"` functions render in their own scope and see the initial state; pass the values they need as arguments, which also makes them part of the cache key. In Server Actions, persist changes to cookies or a database and revalidate, as shown below.
 
 **Troubleshooting:** if the "React cache() is not active" warning appears _during_ a render, rsc-state is importing a different copy of React than your app renders with. This happens with linked or workspace packages (`file:`, `link:`, monorepos). Dedupe React in your bundler, for example in Vite:
 
@@ -192,16 +192,21 @@ export const userStore = createServerStore({
 	}),
 });
 
-// app/layout.tsx - Initialize from cookies each request
+// app/layout.tsx - Initialize from the verified session each request
 import { cookies } from "next/headers";
 import { userStore } from "@/lib/stores";
+import { verifySession } from "@/lib/session";
 
 export default async function Layout({ children }) {
 	const cookieStore = await cookies();
-	const userId = cookieStore.get("userId")?.value ?? null;
-	const userName = cookieStore.get("userName")?.value ?? "";
+	// Never trust raw cookie values: anyone can set `userId=admin` in their browser.
+	// verifySession checks a signed cookie and returns null when it's missing, forged or expired
+	// (see examples/next-16/lib/session.ts, or use your auth library's session API).
+	const session = verifySession(cookieStore.get("session")?.value);
 
-	await userStore.initialize({ userId, userName });
+	if (session) {
+		await userStore.initialize({ userId: session.userId, userName: session.userName });
+	}
 
 	return <html><body>{children}</body></html>;
 }
@@ -215,16 +220,23 @@ export function Header() {
 	return <h1>Welcome, {user.isAuthenticated ? user.userName : "Guest"}</h1>;
 }
 
-// lib/actions.ts - Update cookies, revalidate
+// lib/actions.ts - Update the session, revalidate
 "use server";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { authenticate, signSession } from "@/lib/session";
 
 export async function login(formData: FormData) {
+	// Verify credentials first: Server Actions are public endpoints anyone can call
+	const user = await authenticate(formData);
+
+	if (!user) {
+		return;
+	}
+
 	const cookieStore = await cookies();
 
-	cookieStore.set("userId", "123");
-	cookieStore.set("userName", formData.get("name") as string);
+	cookieStore.set("session", signSession({ userId: user.id, userName: user.name }), { httpOnly: true, secure: true, sameSite: "lax" });
 
 	revalidatePath("/"); // New request → layout re-initializes store
 }
@@ -265,6 +277,7 @@ import { revalidatePath } from "next/cache";
 import { settingsStore } from "./stores";
 
 export async function toggleTheme() {
+	// This changes the theme for every visitor: authorize the caller in a real app
 	const current = settingsStore.read().theme;
 
 	await settingsStore.set({ theme: current === "light" ? "dark" : "light" });
@@ -546,6 +559,7 @@ rsc-state runs only on the server, but the state it holds often comes from reque
 
 - **Request isolation**: request-scoped state lives in React's per-request `cache`. Each instance (and each `reset()`) gets its own copy of the plain objects and arrays in a literal `initial`, so mutating what `read()` returned in place can never leak into another request. Class instances (`Map`, `Set`, `Date`, ...) can't be copied; a literal `initial` containing one logs a warning at creation. Use a factory (`initial: () => ({ ... })`) for those. Objects you pass to `initialize()` or `set()` become the state as they are, so don't pass module-level objects shared between requests.
 - **State validation**: `initialize`, `set`, `update`, `patch`, `batch`, middleware results and adapter reads must produce an object. `null`, `undefined` or primitives (for example `JSON.parse("null")` from a tampered cookie, or a corrupted storage value) are rejected with a `TypeError` and the previous state is kept.
+- **No `undefined` in required fields**: `patch()` takes a `Pick` of the state type, so `patch({ userId: session?.userId })` doesn't compile for a `string | null` field. With `Partial`, it would store `undefined` and turn `userId !== null` into a false "signed in".
 - **Prototype safety**: merges use object spread and keys named `__proto__` are defined as own properties, so JSON payloads can't pollute `Object.prototype` or change a state's prototype.
 - **Fail-closed option**: `throwOnDeriveError` (see [Error Handling](#error-handling)).
 - **No sensitive data in errors**: library error messages describe invalid values by type only. `debug: true` logs full state, so keep it off in production.
@@ -555,6 +569,7 @@ rsc-state runs only on the server, but the state it holds often comes from reque
 - **Never put user-specific data in `"persistent"` stores.** They are shared by every user and request.
 - **Treat everything from a request as untrusted.** Validate cookies, form data and route parameters before `initialize()`, `set()` or `patch()`: the store types are compile-time only, so an unvalidated object can add any field (`isAdmin: true`). Sessions kept in cookies must be signed; the Next.js examples show HMAC-signed, schema-validated sessions.
 - **Authorize Server Actions.** They are public HTTP endpoints. Check the caller before mutating a persistent store, since that change reaches every visitor.
+- **Validate in your adapter's `read()`.** Stored data goes straight into state without passing through middleware, so anything that edits your storage (another service, a manual fix, an attacker with database access) controls what the store holds. Return `null` for anything that doesn't match your state shape.
 - **Keep `key` values static.** Every store with the same key shares one state, and keys are never released. Deriving keys from user input would mix tenants and grow memory without bound.
 - **Bound async work.** Mutations on a store run one at a time, so an adapter call or middleware that never settles blocks every later mutation, which for a persistent store means every user. Configure timeouts in your storage client.
 - **Render user-dependent pages dynamically.** If a page initializes a store from per-user data, make sure the framework doesn't cache its output for everyone (reading cookies makes Next.js render dynamically; Waku pages need `render: "dynamic"`).

@@ -6,15 +6,23 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
  * The session is stored client-side, so it must be signed: without a signature anyone can
  * edit the cookie and be rendered as any user, with any extra fields they like. The payload
  * is signed with HMAC-SHA256 and validated field by field before it reaches the store.
+ *
+ * The signed payload carries its own expiry. The cookie's maxAge only tells the browser when to
+ * drop it; without a server-checked expiry, a copied cookie would stay valid forever.
+ * Logging out deletes the cookie but cannot revoke copies made before; revocation needs
+ * server-side session storage.
  */
 
 export const SESSION_COOKIE = "user_session";
+
+const SESSION_LIFETIME_IN_SECONDS = 60 * 60 * 24 * 7;
+const MINIMUM_SECRET_LENGTH = 32;
 
 export const SESSION_COOKIE_OPTIONS = {
 	httpOnly: true,
 	secure: process.env.NODE_ENV === "production",
 	sameSite: "lax",
-	maxAge: 60 * 60 * 24 * 7,
+	maxAge: SESSION_LIFETIME_IN_SECONDS,
 	path: "/",
 } as const;
 
@@ -32,6 +40,14 @@ export interface SessionData {
 	};
 }
 
+/**
+ * What is actually signed: the session plus its absolute expiry in milliseconds since the epoch.
+ */
+interface SignedSessionPayload {
+	session: SessionData;
+	expiresAt: number;
+}
+
 type GlobalScopeWithSessionSecret = typeof globalThis & { __rscStateExampleSessionSecret?: string };
 
 /**
@@ -42,13 +58,28 @@ type GlobalScopeWithSessionSecret = typeof globalThis & { __rscStateExampleSessi
  * @returns Secret used to sign session cookies
  */
 function getSessionSecret(): string {
-	if (process.env.SESSION_SECRET) {
-		return process.env.SESSION_SECRET;
+	const configuredSecret = process.env.SESSION_SECRET;
+
+	if (configuredSecret !== undefined && configuredSecret !== "") {
+		// A short secret can be brute-forced offline from a single captured cookie
+		if (configuredSecret.length < MINIMUM_SECRET_LENGTH) {
+			throw new Error(`SESSION_SECRET must be at least ${MINIMUM_SECRET_LENGTH} characters long.`);
+		}
+
+		return configuredSecret;
 	}
 
 	const globalScope = globalThis as GlobalScopeWithSessionSecret;
 
-	globalScope.__rscStateExampleSessionSecret ??= randomBytes(32).toString("hex");
+	if (globalScope.__rscStateExampleSessionSecret === undefined) {
+		globalScope.__rscStateExampleSessionSecret = randomBytes(32).toString("hex");
+
+		if (process.env.NODE_ENV === "production") {
+			console.warn(
+				"[session] SESSION_SECRET is not set: using a random per-process secret. Sessions end on restart and are not shared between instances.",
+			);
+		}
+	}
 
 	return globalScope.__rscStateExampleSessionSecret;
 }
@@ -95,13 +126,37 @@ function isSessionData(value: unknown): value is SessionData {
 }
 
 /**
+ * Checks the signed envelope: exactly a session and an expiry that is in the future but no
+ * further out than one session lifetime, so even a forged far-future expiry is rejected.
+ *
+ * @param value - Parsed cookie payload
+ * @returns True when the payload is well formed and not expired
+ */
+function isSignedSessionPayload(value: unknown): value is SignedSessionPayload {
+	if (typeof value !== "object" || value === null || Object.keys(value).length !== 2) {
+		return false;
+	}
+
+	const candidate = value as Record<string, unknown>;
+	const now = Date.now();
+
+	return (
+		typeof candidate.expiresAt === "number" &&
+		candidate.expiresAt > now &&
+		candidate.expiresAt <= now + SESSION_LIFETIME_IN_SECONDS * 1000 &&
+		isSessionData(candidate.session)
+	);
+}
+
+/**
  * Serializes and signs a session for storage in a cookie.
  *
  * @param session - Session to encode
  * @returns Cookie value in the form `payload.signature`
  */
 export function encodeSession(session: SessionData): string {
-	const encodedPayload = Buffer.from(JSON.stringify(session)).toString("base64url");
+	const payload: SignedSessionPayload = { session, expiresAt: Date.now() + SESSION_LIFETIME_IN_SECONDS * 1000 };
+	const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
 
 	return `${encodedPayload}.${signPayload(encodedPayload)}`;
 }
@@ -135,7 +190,7 @@ export function decodeSession(cookieValue: string | undefined): SessionData | nu
 	try {
 		const payload: unknown = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
 
-		return isSessionData(payload) ? payload : null;
+		return isSignedSessionPayload(payload) ? payload.session : null;
 	} catch {
 		return null;
 	}
